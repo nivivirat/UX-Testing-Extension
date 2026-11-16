@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "KHDA Visual QA Capture",
+  "version": "1.2.0",
+  "description": "Inspect KHDA screens like Figma Dev Mode, mark UI problems and export developer-ready reports for Claude Code. All data stays on this computer.",
+  "minimum_chrome_version": "116",
+  "permissions": ["scripting", "activeTab", "storage", "downloads"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "KHDA Visual QA — show / hide toolbar" },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+Q" },
+      "description": "Show / hide the KHDA Visual QA toolbar"
+    }
+  }
+}

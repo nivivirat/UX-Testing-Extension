@@ -1,0 +1,9 @@
+# QA exports contain screenshots of KHDA screens — never commit them
+*.zip
+/qa/
+/KHDA-QA-*/
+
+node_modules/
+.DS_Store
+Thumbs.db
+.env*
