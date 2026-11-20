@@ -362,6 +362,7 @@
     <div class="panel" id="list" hidden style="right:20px;bottom:72px"></div>
     <div id="modal" hidden></div>
     <div id="dlg" hidden></div>
+    <div class="menu" id="menu" role="listbox" hidden></div>
     <div class="dock" id="dock">
       <div class="grip" title="Drag to move">⋮⋮</div>
       <button class="dbtn" data-act="inspect" aria-pressed="false" title="Inspect elements — like Figma Dev Mode">${IC.inspect}<span>Inspect</span></button>
@@ -1335,11 +1336,9 @@
       ? `<a class="go" href="${esc(url)}" title="Go to the page: ${esc(pageKey(i))}" aria-label="Go to the page ${esc(pageKey(i))}">${ICON.go}</a>`
       : `<span class="go off" title="The page address was not recorded for this issue">${ICON.go}</span>`;
   };
-  /** Status pill = a real <select> underneath, so changing status is one click + one pick. */
+  /** Status pill — opens the custom status menu (one click + one pick). */
   const statusPill = (i) =>
-    `<label class="st st-${esc(i.status)}" title="Change status"><select data-status="${esc(i.id)}" aria-label="Status">${K.STATUSES.map(
-      (x) => `<option value="${x}"${x === i.status ? ' selected' : ''}>${esc(K.STATUS_LABEL[x])}</option>`
-    ).join('')}</select>${esc(K.STATUS_LABEL[i.status])}${ICON.chev}</label>`;
+    `<button class="st st-${esc(i.status)}" data-menu="status" data-id="${esc(i.id)}" aria-haspopup="listbox" title="Change status">${esc(K.STATUS_LABEL[i.status])}${ICON.chev}</button>`;
 
   function issueRow(i) {
     return `<div class="irow" data-id="${esc(i.id)}">
@@ -1367,22 +1366,6 @@
     </div>`;
   }
 
-  /** New / edit project form (shown under the panel header). */
-  function projectForm() {
-    const isNew = ui.projForm === 'new';
-    const pr = isNew ? { name: '', code: '', environment: 'UAT' } : state.project || {};
-    return `<div class="sform pform">
-      <div class="ftitle">${isNew ? 'New project' : 'Edit project'}</div>
-      <label class="fld"><span>Name</span><input class="inp" id="pName" value="${esc(pr.name)}" placeholder="e.g. KHDA CRM" autocomplete="off"></label>
-      <div class="g2">
-        <label class="fld"><span>Environment</span><select class="inp" id="pEnv">${['UAT', 'SIT', 'DEV', 'STAGING', 'PROD'].map((e) => `<option${e === pr.environment ? ' selected' : ''}>${e}</option>`).join('')}</select></label>
-        <label class="fld"><span>ID prefix <em>Optional</em></span><input class="inp" id="pCode" value="${esc(isNew ? '' : pr.code)}" placeholder="Auto" maxlength="8" autocomplete="off"></label>
-      </div>
-      <div class="frow"><button class="btn primary sm" data-act="saveProject">${isNew ? 'Create' : 'Save'}</button><button class="btn ghost sm" data-act="cancelProject">Cancel</button>
-        ${isNew ? '' : '<span class="sp"></span><button class="link danger" data-act="deleteProject">Delete project</button>'}</div>
-    </div>`;
-  }
-
   function renderList() {
     const p = $('list');
     const s = state.settings;
@@ -1407,23 +1390,14 @@
     p.innerHTML = `
       <div class="ph" data-drag>
         <div class="proj">
-          <label class="pswitch" title="Switch project">
-            <select id="fProject" aria-label="Project">${state.projects.map((pr) => `<option value="${esc(pr.id)}"${pr.id === state.activeProject ? ' selected' : ''}>${esc(pr.name)}</option>`).join('')}<option value="__new">＋ New project…</option></select>
+          <button class="pswitch" data-menu="project" aria-haspopup="listbox" title="Switch project">
             <span class="pname">${esc((state.project && state.project.name) || 'Project')}</span>${ICON.chev}
-          </label>
+          </button>
           <div class="sub">${esc((state.project && state.project.environment) || '')}</div>
         </div>
         <span class="sp"></span>
-        <button class="ibtn" data-act="editProject" title="Edit project">${ICON.edit}</button>
-        <button class="ibtn" data-act="settings" title="Settings">⚙</button>
+        <button class="ibtn" data-act="settings" title="Settings & projects">⚙</button>
         <button class="ibtn" data-act="closeList" title="Close">${IC.close}</button>
-      </div>
-      ${ui.projForm ? projectForm() : ''}
-      <div class="sform" ${ui.settings && !ui.projForm ? '' : 'hidden'}>
-        <label class="fld"><span>Your initials</span><input class="inp" id="sRep" value="${esc(s.reporter)}" maxlength="6" autocomplete="off"></label>
-        <label class="chk"><input type="checkbox" id="sRedact" ${s.autoRedact ? 'checked' : ''}> Blur personal data automatically</label>
-        <label class="chk"><input type="checkbox" id="sOutline" ${s.outlineElement ? 'checked' : ''}> Outline the element on screenshots</label>
-        <div class="slinks"><button class="link" data-act="backup">Download backup</button><label class="link">Restore backup<input type="file" accept=".json,application/json" hidden id="fRestore"></label></div>
       </div>
       <div class="lhead">
         <div class="srch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input class="inp" id="fSearch" type="search" placeholder="Search issues" value="${esc(ui.q || '')}" autocomplete="off"></div>
@@ -1445,7 +1419,10 @@
     const pb = p.querySelector('.pb');
     pb.scrollTop = scrollResetPending ? 0 : keepScroll;
     scrollResetPending = false;
-    pb.onscroll = () => (ui.scroll = pb.scrollTop);
+    pb.onscroll = () => {
+      ui.scroll = pb.scrollTop;
+      if (menuState) closeMenu();
+    };
   }
   let scrollResetPending = false;
 
@@ -1506,8 +1483,135 @@
     return true;
   }
 
+  // ======================================================================= dropdown menu
+  // Custom (Vercel-style) popover used for every dropdown — native <select> menus can't be styled.
+  const STATUS_DOT = { open: '#A3A3A3', reopened: '#E5484D', fixed: '#006BFF', 'partially-fixed': '#F5A623', unresolved: '#F5A623', closed: '#107D32' };
+  let menuState = null;
+  function closeMenu() {
+    const m = $('menu');
+    m.hidden = true;
+    m.innerHTML = '';
+    if (menuState && menuState.anchor) menuState.anchor.setAttribute('aria-expanded', 'false');
+    menuState = null;
+  }
+  /** items: [{ value, label, sub?, dot?, icon?, checked?, danger? } | { sep: true } | { heading }] */
+  function openMenu(anchor, items, onPick) {
+    if (menuState && menuState.anchor === anchor) return closeMenu();
+    closeMenu();
+    const m = $('menu');
+    m.innerHTML = items
+      .map((it, n) =>
+        it.sep
+          ? '<div class="msep"></div>'
+          : it.heading
+            ? `<div class="mlabel">${esc(it.heading)}</div>`
+            : `<button class="mi${it.danger ? ' danger' : ''}" role="option" data-i="${n}" aria-selected="${!!it.checked}">` +
+              `${it.dot ? `<span class="mdot" style="background:${it.dot}"></span>` : ''}${it.icon || ''}` +
+              `<span class="ml">${esc(it.label)}</span>${it.sub ? `<span class="msub">${esc(it.sub)}</span>` : ''}` +
+              `<span class="ck">${it.checked ? ICON.check : ''}</span></button>`
+      )
+      .join('');
+    m.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    const mw = m.offsetWidth;
+    const mh = m.offsetHeight;
+    const left = Math.max(8, Math.min(r.left, innerWidth - mw - 8));
+    const top = r.bottom + 6 + mh > innerHeight - 8 ? Math.max(8, r.top - mh - 6) : r.bottom + 6;
+    m.style.left = left + 'px';
+    m.style.top = top + 'px';
+    anchor.setAttribute('aria-expanded', 'true');
+    menuState = { anchor, items, onPick };
+    const first = m.querySelector('.mi[aria-selected="true"]') || m.querySelector('.mi');
+    if (first) first.focus({ preventScroll: true });
+  }
+  $('menu').addEventListener('click', (e) => {
+    const b = e.target.closest('.mi');
+    if (!b || !menuState) return;
+    const { items, onPick } = menuState;
+    closeMenu();
+    onPick(items[+b.dataset.i]);
+  });
+  $('menu').addEventListener('keydown', (e) => {
+    const btns = [...$('menu').querySelectorAll('.mi')];
+    const i = btns.indexOf(shadow.activeElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      (btns[i + 1] || btns[0]).focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      (btns[i - 1] || btns[btns.length - 1]).focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      const a = menuState && menuState.anchor;
+      closeMenu();
+      if (a) a.focus();
+    } else if (e.key === 'Tab') closeMenu();
+  });
+  // Close when clicking anywhere else (in the toolbar or on the page), or when the window resizes.
+  window.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (!menuState) return;
+      const path = e.composedPath();
+      if (!path.includes($('menu')) && !path.includes(menuState.anchor)) closeMenu();
+    },
+    true
+  );
+  window.addEventListener('resize', () => menuState && closeMenu());
+
+  function openStatusMenu(anchor) {
+    const id = anchor.dataset.id;
+    const it = state.issues.find((x) => x.id === id);
+    if (!it) return;
+    openMenu(
+      anchor,
+      K.STATUSES.map((x) => ({ value: x, label: K.STATUS_LABEL[x], dot: STATUS_DOT[x], checked: x === it.status })),
+      async (pick) => {
+        if (pick.value === it.status) return;
+        try {
+          if (await setStatus(id, pick.value)) toast(pick.value === 'reopened' ? 'Reopened — your note goes to the developer in the next export' : `Status: ${K.STATUS_LABEL[pick.value]}`);
+        } catch (err) {
+          toast(err.message, 'err', 6000);
+        }
+      }
+    );
+  }
+
+  function openProjectMenu(anchor) {
+    const PLUS = '<svg class="mic" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+    const GEAR = '<svg class="mic" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>';
+    openMenu(
+      anchor,
+      [
+        { heading: 'Projects' },
+        ...state.projects.map((pr) => ({ value: pr.id, label: pr.name, sub: pr.environment, checked: pr.id === state.activeProject })),
+        { sep: true },
+        { value: '__new', label: 'New project', icon: PLUS },
+        { value: '__manage', label: 'Manage projects', icon: GEAR },
+      ],
+      async (pick) => {
+        try {
+          if (pick.value === '__new') return send('openSettings', { section: 'projects/new' });
+          if (pick.value === '__manage') return send('openSettings', { section: 'projects' });
+          if (pick.value === state.activeProject) return;
+          await send('setActiveProject', { id: pick.value });
+          scrollResetPending = true;
+          await refresh();
+        } catch (err) {
+          toast(err.message, 'err', 6000);
+        }
+      }
+    );
+  }
+
   $('list').addEventListener('click', async (e) => {
     const t = e.target;
+    const mb = t.closest('[data-menu]');
+    if (mb) {
+      if (mb.dataset.menu === 'status') openStatusMenu(mb);
+      else if (mb.dataset.menu === 'project') openProjectMenu(mb);
+      return;
+    }
     const go = t.closest('a.go');
     if (go) {
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return; // let the browser open a new tab
@@ -1540,32 +1644,7 @@
         const a = act.dataset.act;
         if (a === 'closeList') toggleList(false);
         else if (a === 'settings') {
-          ui.settings = !ui.settings;
-          ui.projForm = null;
-          renderList();
-        } else if (a === 'editProject') {
-          ui.projForm = ui.projForm === 'edit' ? null : 'edit';
-          renderList();
-          if (ui.projForm) $('pName').focus();
-        } else if (a === 'cancelProject') {
-          ui.projForm = null;
-          renderList();
-        } else if (a === 'saveProject') {
-          const project = { name: $('pName').value, code: $('pCode').value, environment: $('pEnv').value };
-          if (ui.projForm === 'edit') project.id = state.activeProject;
-          await send('saveProject', { project });
-          const created = ui.projForm === 'new';
-          ui.projForm = null;
-          scrollResetPending = true;
-          await refresh();
-          toast(created ? `Project "${project.name.trim()}" created` : 'Project saved');
-        } else if (a === 'deleteProject') {
-          if (!confirm(`Delete the project "${state.project.name}"?`)) return;
-          await send('deleteProject', { id: state.activeProject });
-          ui.projForm = null;
-          await refresh();
-          toast('Project deleted');
-        } else if (a === 'export') {
+          await send('openSettings', { section: 'projects' });        } else if (a === 'export') {
           act.disabled = true;
           const r = await send('exportZip', { projectId: state.activeProject });
           toast(
@@ -1573,11 +1652,6 @@
             r.missing.length ? 'err' : '',
             6000
           );
-          act.disabled = false;
-        } else if (a === 'backup') {
-          act.disabled = true;
-          const r = await send('backup');
-          toast(`Backup of ${r.count} issue${r.count === 1 ? '' : 's'} saved to Downloads`);
           act.disabled = false;
         } else if (a === 'clear') {
           if (!state.issues.length) return;
@@ -1619,35 +1693,8 @@
 
   $('list').addEventListener('change', async (e) => {
     try {
-      const id = e.target.id;
-      if (id === 'fProject') {
-        if (e.target.value === '__new') {
-          ui.projForm = 'new';
-          renderList(); // also puts the select back on the current project
-          $('pName').focus();
-          return;
-        }
-        await send('setActiveProject', { id: e.target.value });
-        ui.projForm = null;
-        scrollResetPending = true;
-        await refresh();
-        return;
-      }
-      if (id === 'sRep' || id === 'sRedact' || id === 'sOutline') {
-        const rep = $('sRep').value.trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        if (!rep) return toast('Your initials are used in issue IDs — please fill them in.', 'err');
-        await send('saveSettings', { settings: { ...state.settings, reporter: rep, autoRedact: $('sRedact').checked, outlineElement: $('sOutline').checked } });
-        await refresh();
-        return toast('Saved');
-      }
       if (e.target.dataset.status) {
         await setStatus(e.target.dataset.status, e.target.value);
-      } else if (e.target.id === 'fRestore') {
-        const file = e.target.files[0];
-        if (!file) return;
-        const r = await send('restore', { text: await file.text() });
-        await refresh();
-        toast(`Restored: ${r.added} added, ${r.updated} updated`, '', 5000);
       } else if (e.target.id === 'fImport') {
         const file = e.target.files[0];
         if (!file) return;
@@ -1693,6 +1740,10 @@
     host.remove();
     window.__kqaWidget = null;
   }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refresh();
+  });
 
   window.__kqaWidget = {
     show() {

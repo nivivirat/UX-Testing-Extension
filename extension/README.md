@@ -75,15 +75,16 @@ Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (
 
 ### Projects
 
-Every issue belongs to a project (e.g. *KHDA CRM*, *KHDA PMS*). Switch with the project name at the
-top of the issues panel (▾); **＋ New project…** creates one. A project remembers the site it was
-created on, so opening the toolbar there switches to it automatically. ✎ renames it or changes its
-environment / ID prefix. Export and *Delete all* work on the current project only.
+Every issue belongs to a project (e.g. *KHDA CRM*, *KHDA PMS*). Click the project name at the top of
+the issues panel to switch, create a **New project**, or **Manage projects**. A project can remember
+its site, so opening the toolbar there switches to it automatically. Export and *Delete all* work on
+the current project only.
 
-### Settings (☰ → ⚙)
+### Settings page (☰ → ⚙)
 
-Your initials (used in issue IDs, e.g. `CRM-NM-001`), two switches (blur personal data, outline the
-element), and **Download / Restore backup**. Changes save automatically.
+Opens in its own tab: **Projects** (create, edit, set active, delete), **Preferences** (your
+initials for issue IDs, blur personal data, outline the element — saved automatically) and
+**Backup** (download / restore).
 
 ## Keeping your issues safe
 

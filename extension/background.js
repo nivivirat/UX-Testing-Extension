@@ -103,6 +103,12 @@ const handlers = {
     };
   },
 
+  /** Open the settings page (projects / preferences / backup) in a tab. */
+  async openSettings({ section }) {
+    await chrome.tabs.create({ url: chrome.runtime.getURL('options.html') + (section ? '#' + section : '') });
+    return true;
+  },
+
   async setActiveProject({ id }) {
     if (!(await K.db.getProjects()).some((p) => p.id === id)) throw new Error('Project not found');
     await K.db.setMeta('activeProject', id);

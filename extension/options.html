@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KHDA Visual QA — Settings</title>
+  <link rel="icon" href="icons/icon-32.png">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <img src="icons/icon-32.png" width="22" height="22" alt="">
+      <b>KHDA Visual QA</b><span class="slash">/</span><span class="muted">Settings</span>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="side" aria-label="Settings sections">
+      <a href="#projects" data-nav="projects">Projects</a>
+      <a href="#preferences" data-nav="preferences">Preferences</a>
+      <a href="#backup" data-nav="backup">Backup</a>
+    </nav>
+
+    <main>
+      <!-- Projects -->
+      <section id="s-projects" hidden>
+        <div class="shead">
+          <div>
+            <h1>Projects</h1>
+            <p class="muted">Each project keeps its own issues and exports. The toolbar switches to a project automatically on its site.</p>
+          </div>
+          <button class="btn primary" id="newProject">New project</button>
+        </div>
+
+        <form class="card form" id="projForm" hidden autocomplete="off">
+          <div class="card-body">
+            <h2 id="formTitle">New project</h2>
+            <label class="fld"><span>Name</span><input class="inp" id="pName" placeholder="e.g. KHDA CRM" required></label>
+            <div class="fld"><span>Environment</span><div class="seg" id="pEnv" role="radiogroup"></div></div>
+            <div class="g2">
+              <label class="fld"><span>ID prefix <em>Optional</em></span><input class="inp" id="pCode" placeholder="Auto from the name" maxlength="8"><small class="muted">Issue IDs look like <code id="idPreview">CRM-NM-001</code></small></label>
+              <label class="fld"><span>Site <em>Optional</em></span><input class="inp" id="pSite" placeholder="https://crm.khda.gov.ae"><small class="muted">The toolbar switches to this project here.</small></label>
+            </div>
+            <div class="err" id="formErr" hidden></div>
+          </div>
+          <div class="card-foot">
+            <span class="muted" id="formHint"></span>
+            <span class="sp"></span>
+            <button type="button" class="btn" id="cancelForm">Cancel</button>
+            <button type="submit" class="btn primary" id="saveForm">Create project</button>
+          </div>
+        </form>
+
+        <div class="card list" id="projList"></div>
+      </section>
+
+      <!-- Preferences -->
+      <section id="s-preferences" hidden>
+        <div class="shead"><div><h1>Preferences</h1><p class="muted">Saved automatically.</p></div><span class="saved" id="savedTag" hidden>Saved</span></div>
+        <div class="card">
+          <div class="row">
+            <div><b>Your initials</b><p class="muted">Used in issue IDs so several testers never clash, e.g. <code>CRM-NM-001</code>.</p></div>
+            <input class="inp short" id="sRep" maxlength="6" autocomplete="off">
+          </div>
+          <div class="row">
+            <div><b>Blur personal data</b><p class="muted">Emails, phone numbers, Emirates IDs and filled inputs are blurred on screenshots.</p></div>
+            <button class="switch" id="sRedact" role="switch" aria-checked="true"><span></span></button>
+          </div>
+          <div class="row">
+            <div><b>Outline the selected element</b><p class="muted">Draws a dashed blue box around it on the screenshot.</p></div>
+            <button class="switch" id="sOutline" role="switch" aria-checked="true"><span></span></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Backup -->
+      <section id="s-backup" hidden>
+        <div class="shead"><div><h1>Backup</h1><p class="muted">Issues live only in this browser. Back them up before removing the extension or moving to a new computer.</p></div></div>
+        <div class="card">
+          <div class="row">
+            <div><b>Download backup</b><p class="muted">All projects, issues and screenshots in one file.</p></div>
+            <button class="btn" id="doBackup">Download</button>
+          </div>
+          <div class="row">
+            <div><b>Restore backup</b><p class="muted">Adds anything missing and updates older copies. Nothing is deleted.</p></div>
+            <label class="btn">Choose file<input type="file" id="doRestore" accept=".json,application/json" hidden></label>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="lib/util.js"></script>
+  <script src="lib/db.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
