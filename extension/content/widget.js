@@ -19,7 +19,7 @@
         chrome.runtime.sendMessage({ type, ...data }, (res) => {
           const le = chrome.runtime.lastError;
           if (le) return reject(new Error(le.message));
-          if (!res) return reject(new Error('No response from the extension'));
+          if (!res) return reject(new Error('The extension needs a reload: open chrome://extensions, click ↻ on KHDA Visual QA, then refresh this page.'));
           res.ok ? resolve(res.result) : reject(new Error(res.error));
         });
       } catch {
@@ -424,11 +424,27 @@
   // state.issues = issues of the ACTIVE project only; state.allIssues = every project.
   let state = { settings: K.DEFAULT_SETTINGS, issues: [], allIssues: [], projects: [], activeProject: null, project: null };
   let autoSwitchDone = false;
+  let oldBackgroundWarned = false;
+  const LEGACY_PROJECT = 'p_default'; // same id the background uses for issues saved before projects
   async function refresh() {
     try {
       const st = await send('state');
+      st.issues = (st.issues || []).map((i) => ({ ...i, projectId: i.projectId || LEGACY_PROJECT }));
+      if (!Array.isArray(st.projects) || !st.projects.length) {
+        // An older background worker is still running (the extension files were updated but the
+        // extension itself was not reloaded). Show everything in one project instead of failing.
+        const s = st.settings || K.DEFAULT_SETTINGS;
+        st.projects = [{ id: LEGACY_PROJECT, name: s.projectName || 'Issues', code: s.projectCode || 'KHDA', environment: s.environment || '', origin: '' }];
+        st.activeProject = LEGACY_PROJECT;
+        st.legacyBackground = true;
+        if (!oldBackgroundWarned) {
+          oldBackgroundWarned = true;
+          toast('Almost updated — open chrome://extensions and click ↻ on KHDA Visual QA, then refresh this page. Your issues are safe.', 'err', 10000);
+        }
+      }
+      if (!st.projects.some((p) => p.id === st.activeProject)) st.activeProject = st.projects[0].id;
       // Opening the toolbar on a site that belongs to another project switches to it automatically.
-      if (!autoSwitchDone) {
+      if (!autoSwitchDone && !st.legacyBackground) {
         autoSwitchDone = true;
         const here = st.projects.find((p) => p.origin && p.origin === location.origin);
         const cur = st.projects.find((p) => p.id === st.activeProject);
