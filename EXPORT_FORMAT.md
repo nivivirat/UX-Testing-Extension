@@ -14,6 +14,9 @@
 > - Markdown: "What's wrong" (the description, quoted) + "Values the tester flagged" table replace the
 >   v1.1 Problems table. `scope.appliesTo` is filled automatically from the scope.
 > - `resolution.problems[]` — per-point status written back by Claude.
+> - **Statuses (extension 1.3):** `open`, `reopened` (tester) → `fixed`, `partially-fixed`,
+>   `unresolved` (developer) → `closed` (tester confirmed) or `reopened`. `verified` from older
+>   exports means `closed`. Closed issues are not included in exports.
 > - Still written for older readers: `observed` (= description), `annotations[]`.
 >
 > Sections below describe v1.0; folder layout, fix scope, element data and resolution are unchanged

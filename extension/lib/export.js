@@ -3,7 +3,7 @@
   'use strict';
   const X = {};
   X.SCHEMA_VERSION = '1.2';
-  X.TOOL_NAME = 'KHDA Visual QA Capture 1.2.0';
+  X.TOOL_NAME = 'KHDA Visual QA Capture 1.3.0';
 
   const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
 
@@ -52,7 +52,7 @@
       category: categories.length === 1 ? categories[0] : 'multiple',
       categories,
       severity: i.severity,
-      status: i.status,
+      status: K.normStatus(i.status),
       scope: {
         level: i.scope.level,
         appliesTo: i.scope.appliesTo || '',
@@ -230,7 +230,7 @@
       .filter(([n]) => n)
       .map(([n, s]) => `${n} ${s}`)
       .join(', ');
-    const open = ex.filter((x) => !['verified', 'fixed'].includes(x.status)).length;
+    const open = ex.filter((x) => ['open', 'reopened'].includes(x.status)).length;
     const L = [
       `# ${settings.projectCode || 'KHDA'} Visual QA Report — ${settings.environment} — ${K.fmtLocal(exportedAt).slice(0, 10)}`,
       '',

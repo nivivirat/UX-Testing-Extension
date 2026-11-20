@@ -50,17 +50,36 @@ from the first line of your description. **Ctrl+Enter** saves, **Esc** cancels.
 Each issue exports **two images**: the annotated screenshot (WebP, max 1920 px wide) and a
 full-resolution crop of the selected element (PNG) — usually 30–150 KB per issue.
 
+### Issues panel (☰)
+
+- **Issues** tab — one line per issue: severity dot, title (click to open), ID, and the page link
+  (click to go to the page where it was reported). Click the status pill to change it.
+  Filter with **All / Open / With dev / Closed** and by page.
+- **Retest** tab — issues the developer marked *Fixed*, *Partly fixed* or *Couldn't fix*, grouped by
+  page with an **Open page** link and the developer's note. Check each one, then
+  **Looks good · Close** or **Still wrong · Reopen**.
+
+Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (you) **Closed** or
+**Reopened**. Issues marked *verified* by older versions show as **Closed**.
+
 ### Export and retest
 
-- **☰ → Export ZIP** saves `KHDA-QA-<date>-<ENV>-<PREFIX>.zip` to Downloads.
+- **Export ZIP** saves `KHDA-QA-<date>-<ENV>-<PREFIX>.zip` to Downloads. Closed issues are left out.
 - Developers unzip it into `qa/` and run `/khda-qa-fix` (see `../developer-kit`).
-- When they send back `issues.json`: **☰ → Import**, retest, and set each issue to *verified* or
-  *reopened*.
+- When they send back `issues.json`: **Import** → the Retest tab opens with what to check.
 
 ### Settings (☰ → ⚙)
 
 Project name, project code, environment, your tester prefix (IDs look like `KHDA-UX1-001`; give
-every tester a different prefix), auto-blur suggestions, element outline.
+every tester a different prefix), auto-blur suggestions, element outline, and **Backup / Restore**.
+
+## Keeping your issues safe
+
+Issues live inside the extension in this Chrome profile. They survive **reloading** the extension
+(↻ on `chrome://extensions`) and updating its files. They are lost if you **remove** the extension,
+load it from a **different folder**, or clear browser data — so before any of those, use
+**⚙ → Download backup**, and **Restore backup** afterwards (restore only adds or updates, never
+deletes).
 
 ## Notes
 
@@ -70,4 +89,3 @@ every tester a different prefix), auto-blur suggestions, element outline.
 - Source file:line appears when the app build stamps elements (see `../developer-kit/README.md`).
 - Only the visible part of the page is captured. Elements inside iframes cannot be inspected.
   Personal names are not blurred automatically.
-- Data lives in this Chrome profile. Export before clearing browser data.

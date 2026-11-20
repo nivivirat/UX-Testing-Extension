@@ -51,18 +51,24 @@ async function blobToDataUrl(blob) {
 async function dataUrlToBlob(dataUrl) {
   return (await fetch(dataUrl)).blob();
 }
+/** Compact list row. Defensive: issues saved by any earlier version must still list correctly. */
 const summary = (i) => {
   K.ensureDescription(i);
+  const r = i.resolution || null;
   return {
     id: i.id,
-    title: i.title,
-    severity: i.severity,
-    status: i.status,
-    scope: i.scope && i.scope.level,
-    route: i.page && i.page.route,
-    tag: i.element && i.element.tag,
-    devStatus: i.resolution && i.resolution.status,
-    createdAt: i.createdAt,
+    title: i.title || K.titleFrom(i.description, i.element),
+    severity: i.severity || 'medium',
+    status: K.normStatus(i.status),
+    scope: (i.scope && i.scope.level) || 'instance',
+    url: (i.page && i.page.url) || '',
+    route: (i.page && i.page.route) || '',
+    pageTitle: (i.page && i.page.title) || '',
+    tag: i.element ? i.element.tag : null,
+    dev: r ? { status: r.status || '', note: [r.notes, r.verification, r.rootCause].filter(Boolean)[0] || '' } : null,
+    reopenCount: (i.history || []).length,
+    createdAt: i.createdAt || '',
+    updatedAt: i.updatedAt || i.createdAt || '',
   };
 };
 
@@ -129,6 +135,7 @@ const handlers = {
   async setStatus({ id, status }) {
     const issue = await K.db.getIssue(id);
     if (!issue) throw new Error(`${id} not found`);
+    status = K.normStatus(status);
     if (status === 'reopened' && issue.resolution) {
       issue.history = [...(issue.history || []), { ...issue.resolution, reopenedAt: K.isoLocal() }];
       issue.resolution = null;
@@ -150,7 +157,7 @@ const handlers = {
         skipped.push(x.id);
         continue;
       }
-      if (x.status && K.STATUSES.includes(x.status)) issue.status = x.status;
+      if (x.status) issue.status = K.normStatus(x.status);
       if (x.resolution !== undefined) issue.resolution = x.resolution;
       if (Array.isArray(x.history)) issue.history = x.history;
       issue.updatedAt = K.isoLocal();
@@ -160,19 +167,57 @@ const handlers = {
     return { updated, skipped };
   },
 
+  /** Full backup: every issue, every image and the ID counters, in one JSON file. */
+  async backup() {
+    const issues = await K.db.getAllIssues();
+    const blobs = {};
+    for (const i of issues)
+      for (const kind of ['raw', 'annotated', 'element', 'full']) {
+        const b = await K.db.getBlob(`${i.id}:${kind}`);
+        if (b) blobs[`${i.id}:${kind}`] = await blobToDataUrl(b);
+      }
+    const data = { kind: 'khda-visual-qa-backup', version: 1, createdAt: K.isoLocal(), issues, blobs, meta: await K.db.allMeta() };
+    const bytes = new TextEncoder().encode(JSON.stringify(data));
+    const d = K.isoLocal().slice(0, 10);
+    await chrome.downloads.download({ url: 'data:application/json;base64,' + b64(bytes), filename: `KHDA-QA-backup-${d}.json`, saveAs: false });
+    return { count: issues.length };
+  },
+
+  /** Merge a backup: adds missing issues, updates ones that are newer in the backup. Never deletes. */
+  async restore({ text }) {
+    const data = JSON.parse(text);
+    if (data.kind !== 'khda-visual-qa-backup' || !Array.isArray(data.issues)) throw new Error('This is not a KHDA Visual QA backup file.');
+    let added = 0;
+    let updated = 0;
+    for (const issue of data.issues) {
+      const cur = await K.db.getIssue(issue.id);
+      if (cur && (cur.updatedAt || '') >= (issue.updatedAt || '')) continue;
+      await K.db.putIssue(issue);
+      for (const [key, url] of Object.entries(data.blobs || {})) if (key.startsWith(issue.id + ':')) await K.db.putBlob(key, await dataUrlToBlob(url));
+      cur ? updated++ : added++;
+    }
+    for (const [key, v] of Object.entries(data.meta || {})) {
+      if (key.startsWith('counter:')) await K.db.setMeta(key, Math.max((await K.db.getMeta(key)) || 0, v || 0));
+      else if (key === 'settings' && !(await K.db.getMeta('settings'))) await K.db.setMeta(key, v);
+    }
+    return { added, updated };
+  },
+
   async clearAll() {
     await K.db.clearIssues();
     return true;
   },
 
   async exportZip() {
-    const issues = await K.db.getAllIssues();
-    if (!issues.length) throw new Error('Nothing to export yet.');
+    // Closed issues are done — they stay in the extension but are not sent to developers again.
+    const all = await K.db.getAllIssues();
+    const issues = all.filter((i) => K.normStatus(i.status) !== 'closed');
+    if (!issues.length) throw new Error(all.length ? 'All issues are closed — nothing to send.' : 'Nothing to export yet.');
     const settings = await K.db.getSettings();
     const { folder, files, missing } = await K.exporter.buildExportFiles(issues, settings, K.db.getBlob, { exportedAt: K.isoLocal() });
     const bytes = await K.makeZipBytes(files.map((f) => ({ name: `${folder}/${f.name}`, data: f.data })));
     await chrome.downloads.download({ url: 'data:application/zip;base64,' + b64(bytes), filename: folder + '.zip', saveAs: false });
-    return { folder, count: issues.length, missing };
+    return { folder, count: issues.length, closedSkipped: all.length - issues.length, missing };
   },
 };
 

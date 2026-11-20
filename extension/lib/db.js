@@ -52,6 +52,12 @@
     await tx('issues', 'readwrite', (s) => s.clear());
     await tx('blobs', 'readwrite', (s) => s.clear());
   };
+  db.allMeta = async () => {
+    const keys = await tx('meta', 'readonly', (s) => s.getAllKeys());
+    const out = {};
+    for (const k of keys) out[k] = await db.getMeta(k);
+    return out;
+  };
   db.getSettings = async () => ({ ...K.DEFAULT_SETTINGS, ...((await db.getMeta('settings')) || {}) });
   db.saveSettings = (s) => db.setMeta('settings', s);
 

@@ -14,7 +14,7 @@ say which one you picked.
 2. Read the export's `README.md` and `issues.json` (`schemaVersion` 1.2).
 3. Find where design tokens live (tokens file, `tailwind.config.*`, global CSS with `--khda-*`
    variables). You need it for `global` scope and to pick tokens for the values in each description.
-4. Skip issues whose status is `fixed` or `verified`. For `reopened` issues read `history[]` first
+4. Skip issues whose status is `fixed`, `closed` or `verified`; work on `open` and `reopened`. For `reopened` issues read `history[]` first
    so you don't repeat the failed attempt.
 
 ## 1. Order

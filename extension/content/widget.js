@@ -1212,56 +1212,168 @@
   }
 
   // ======================================================================= issues panel
-  let showSettings = false;
+  // Two views: "Issues" (everything, filterable) and "Retest" (developer said fixed → check again).
+  const UI_KEY = 'kqa-ui'; // remembers open panel/view across page navigation (sessionStorage, no data)
+  const ui = (() => {
+    try {
+      return { view: 'all', filter: 'all', page: '', settings: false, ...JSON.parse(sessionStorage.getItem(UI_KEY) || '{}') };
+    } catch {
+      return { view: 'all', filter: 'all', page: '', settings: false };
+    }
+  })();
+  const saveUi = () => {
+    try {
+      sessionStorage.setItem(UI_KEY, JSON.stringify({ view: ui.view, filter: ui.filter, page: ui.page, open: !$('list').hidden }));
+    } catch {
+      /* storage blocked */
+    }
+  };
+
+  const FILTERS = [
+    ['all', 'All', () => true],
+    ['open', 'Open', (i) => i.status === 'open' || i.status === 'reopened'],
+    ['dev', 'With dev', (i) => K.RETEST.includes(i.status)],
+    ['closed', 'Closed', (i) => i.status === 'closed'],
+  ];
+  const pageKey = (i) => i.route || '/';
+  const ICON = {
+    edit: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+    ext: '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M8 7h9v9"/></svg>',
+  };
+  const pageLink = (i, label) =>
+    i.url ? `<a class="plink" href="${esc(i.url)}" title="Open ${esc(i.url)}">${esc(label || pageKey(i))}${ICON.ext}</a>` : `<span>${esc(label || pageKey(i))}</span>`;
+  const statusPill = (i) =>
+    `<label class="st st-${esc(i.status)}" title="Change status"><select data-status="${esc(i.id)}">${K.STATUSES.map(
+      (x) => `<option value="${x}"${x === i.status ? ' selected' : ''}>${esc(K.STATUS_LABEL[x])}</option>`
+    ).join('')}</select>${esc(K.STATUS_LABEL[i.status])}</label>`;
+
+  function issueRow(i) {
+    return `<div class="irow" data-id="${esc(i.id)}">
+      <span class="sdot sd-${esc(i.severity)}" title="${esc(K.severityLabel(i.severity))}"></span>
+      <div class="im">
+        <button class="it" data-edit="${esc(i.id)}" title="Open issue">${esc(i.title)}</button>
+        <div class="iu"><span class="mono">${esc(i.id)}</span><span class="dotsep">·</span>${pageLink(i)}</div>
+      </div>
+      ${statusPill(i)}
+      <div class="iact"><button class="ibtn" data-edit="${esc(i.id)}" title="Edit">${ICON.edit}</button><button class="ibtn" data-del="${esc(i.id)}" title="Delete">${ICON.trash}</button></div>
+    </div>`;
+  }
+
+  function retestCard(i) {
+    const dev = i.dev || {};
+    const label = K.STATUS_LABEL[i.status];
+    return `<div class="rcard" data-id="${esc(i.id)}">
+      <div class="rt"><span class="sdot sd-${esc(i.severity)}"></span><button class="it" data-edit="${esc(i.id)}">${esc(i.title)}</button></div>
+      <div class="iu"><span class="mono">${esc(i.id)}</span><span class="dotsep">·</span><span class="st st-${esc(i.status)} ro">${esc(label)}</span>${i.reopenCount ? `<span class="dotsep">·</span><span>reopened ${i.reopenCount}×</span>` : ''}</div>
+      ${dev.note ? `<div class="dnote">${esc(dev.note)}</div>` : ''}
+      <div class="ract"><button class="btn sm" data-set="reopened" data-id="${esc(i.id)}">Still wrong · Reopen</button><button class="btn sm primary" data-set="closed" data-id="${esc(i.id)}">Looks good · Close</button></div>
+    </div>`;
+  }
+
   function renderList() {
     const p = $('list');
     const s = state.settings;
-    const items = state.issues
-      .map(
-        (i) => `<div class="icard">
-          <div class="r1"><span class="id">${esc(i.id)}</span><span class="chip sev-${esc(i.severity)}">${esc(K.severityLabel(i.severity))}</span><span class="chip">${esc((K.SCOPES[i.scope] || {}).label || '')}</span></div>
-          <div class="tt">${esc(i.title)}</div>
-          <div class="mt">${esc(i.route || '')}${i.tag ? ' · ' + esc(i.tag) : ' · whole screen'}${i.devStatus ? ' · dev: ' + esc(i.devStatus) : ''}</div>
-          <div class="r1"><select data-status="${esc(i.id)}" title="Status">${K.STATUSES.map((x) => `<option${x === i.status ? ' selected' : ''}>${x}</option>`).join('')}</select>
-            <span style="flex:1"></span><button class="btn sm" data-edit="${esc(i.id)}">Edit</button><button class="btn sm ghost danger" data-del="${esc(i.id)}">Delete</button></div>
-        </div>`
-      )
-      .join('');
+    const all = state.issues;
+    const retest = all.filter((i) => K.RETEST.includes(i.status));
+    const pool = ui.view === 'retest' ? retest : all.filter((FILTERS.find((f) => f[0] === ui.filter) || FILTERS[0])[2]);
+    const pages = [...new Set(pool.map(pageKey))].sort();
+    if (ui.page && !pages.includes(ui.page)) ui.page = '';
+    const shown = pool.filter((i) => !ui.page || pageKey(i) === ui.page);
+
+    let body;
+    if (!all.length) body = '<div class="empty"><b>No issues yet</b><br>Click <b>Inspect</b>, select an element and report what\'s wrong.</div>';
+    else if (!shown.length)
+      body = `<div class="empty">${ui.view === 'retest' ? '<b>Nothing to retest</b><br>Import the issues.json the developer sends back — fixed issues appear here.' : 'No issues match this filter.'}</div>`;
+    else if (ui.view === 'retest') {
+      const groups = {};
+      for (const i of shown) (groups[pageKey(i)] = groups[pageKey(i)] || []).push(i);
+      body = Object.keys(groups)
+        .sort()
+        .map((pg) => {
+          const g = groups[pg];
+          return `<div class="grp"><span class="mono">${esc(pg)}</span><span class="gcount">${g.length}</span><span class="sp"></span>${g[0].url ? pageLink(g[0], 'Open page') : ''}</div>${g.map(retestCard).join('')}`;
+        })
+        .join('');
+    } else body = `<div class="irows">${shown.map(issueRow).join('')}</div>`;
+
+    const counts = Object.fromEntries(FILTERS.map(([k, , fn]) => [k, all.filter(fn).length]));
     p.innerHTML = `
       <div class="ph" data-drag>
-        <div><div class="ttl">Issues <span class="muted">(${state.issues.length})</span></div><div class="sub">${esc(s.projectName)} · ${esc(s.environment)} · ${esc(s.reporter)}</div></div>
+        <div><div class="ttl">Issues</div><div class="sub">${esc(s.projectName)} · ${esc(s.environment)} · ${esc(s.reporter)}</div></div>
         <span class="sp"></span>
         <button class="ibtn" data-act="settings" title="Settings">⚙</button>
         <button class="ibtn" data-act="closeList" title="Close">${IC.close}</button>
       </div>
-      <div class="sform" ${showSettings ? '' : 'hidden'}>
+      <div class="sform" ${ui.settings ? '' : 'hidden'}>
         <label class="fld"><span>Project name</span><input class="inp" id="sName" value="${esc(s.projectName)}"></label>
         <div class="g2">
           <label class="fld"><span>Project code</span><input class="inp" id="sCode" value="${esc(s.projectCode)}"></label>
           <label class="fld"><span>Environment</span><select class="inp" id="sEnv">${['UAT', 'SIT', 'DEV', 'STAGING', 'PROD'].map((e) => `<option${e === s.environment ? ' selected' : ''}>${e}</option>`).join('')}</select></label>
         </div>
-        <label class="fld"><span>Your tester prefix</span><input class="inp" id="sRep" value="${esc(s.reporter)}"><span class="hint">Issue IDs look like ${esc(s.projectCode)}-${esc(s.reporter)}-001. Give every tester a different prefix.</span></label>
-        <label class="chk"><input type="checkbox" id="sRedact" ${s.autoRedact ? 'checked' : ''}> Suggest blurring emails, phones, Emirates IDs, inputs</label>
+        <label class="fld"><span>Your tester prefix</span><input class="inp" id="sRep" value="${esc(s.reporter)}"><span class="hint">IDs look like ${esc(s.projectCode)}-${esc(s.reporter)}-001. Give every tester a different prefix.</span></label>
+        <label class="chk"><input type="checkbox" id="sRedact" ${s.autoRedact ? 'checked' : ''}> Blur emails, phones, Emirates IDs, inputs</label>
         <label class="chk"><input type="checkbox" id="sOutline" ${s.outlineElement ? 'checked' : ''}> Outline the selected element on screenshots</label>
-        <div style="display:flex;gap:8px"><button class="btn primary" data-act="saveSettings">Save settings</button><button class="btn ghost" data-act="settings">Cancel</button></div>
+        <div style="display:flex;gap:8px"><button class="btn primary sm" data-act="saveSettings">Save</button><button class="btn ghost sm" data-act="settings">Cancel</button></div>
+        <div class="fld" style="border-top:1px solid var(--gray2);padding-top:12px"><span>Backup</span>
+          <span class="hint">Everything (issues + screenshots) in one file. Restore adds back anything missing — nothing is deleted.</span>
+          <div style="display:flex;gap:8px"><button class="btn sm" data-act="backup">Download backup</button><label class="btn sm">Restore backup<input type="file" accept=".json,application/json" hidden id="fRestore"></label></div>
+        </div>
       </div>
-      <div class="pb">${items ? `<div class="ilist">${items}</div>` : '<div class="empty">No issues yet.<br>Click <b>Inspect</b>, select an element and flag what is wrong.</div>'}</div>
+      <div class="lhead">
+        <div class="seg tabs">
+          <button data-view="all" aria-pressed="${ui.view === 'all'}">Issues <span class="cnt">${all.length}</span></button>
+          <button data-view="retest" aria-pressed="${ui.view === 'retest'}">Retest <span class="cnt${retest.length ? ' hot' : ''}">${retest.length}</span></button>
+        </div>
+        <div class="filters">
+          ${ui.view === 'all' ? `<div class="chips">${FILTERS.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${ui.filter === k}">${l}<span>${counts[k]}</span></button>`).join('')}</div>` : '<div class="hint">The developer marked these done. Check each on its page.</div>'}
+          ${pages.length > 1 ? `<select class="psel" id="fPage" title="Filter by page"><option value="">All pages</option>${pages.map((pg) => `<option${pg === ui.page ? ' selected' : ''}>${esc(pg)}</option>`).join('')}</select>` : ''}
+        </div>
+      </div>
+      <div class="pb">${body}</div>
       <div class="pf">
-        <button class="btn primary grow" data-act="export">Export ZIP</button>
+        <button class="btn primary grow" data-act="export" title="Closed issues are not included">Export ZIP</button>
         <label class="btn" title="Load the issues.json the developer sends back">Import<input type="file" accept=".json,application/json" hidden id="fImport"></label>
-        <button class="btn ghost danger" data-act="clear" title="Delete all issues">Clear</button>
+        <button class="ibtn" data-act="clear" title="Delete all issues">${ICON.trash}</button>
       </div>`;
+  }
+
+  async function setStatus(id, status) {
+    await send('setStatus', { id, status });
+    await refresh();
   }
 
   $('list').addEventListener('click', async (e) => {
     const t = e.target;
+    if (t.closest('a.plink')) {
+      saveUi(); // the panel reopens on the same view after the page loads
+      return;
+    }
     const act = t.closest('[data-act]');
     try {
+      const view = t.closest('[data-view]');
+      const filter = t.closest('[data-filter]');
+      const set = t.closest('[data-set]');
+      if (view) {
+        ui.view = view.dataset.view;
+        ui.page = '';
+        saveUi();
+        return renderList();
+      }
+      if (filter) {
+        ui.filter = filter.dataset.filter;
+        saveUi();
+        return renderList();
+      }
+      if (set) {
+        await setStatus(set.dataset.id, set.dataset.set);
+        return toast(set.dataset.set === 'closed' ? `${set.dataset.id} closed` : `${set.dataset.id} reopened — it goes back to the developer in the next export`);
+      }
       if (act) {
         const a = act.dataset.act;
         if (a === 'closeList') toggleList(false);
         else if (a === 'settings') {
-          showSettings = !showSettings;
+          ui.settings = !ui.settings;
           renderList();
         } else if (a === 'saveSettings') {
           const code = $('sCode').value.trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -1269,20 +1381,29 @@
           if (!code || !rep) return toast('Project code and tester prefix are required (letters and numbers).', 'err');
           const settings = { ...state.settings, projectName: $('sName').value.trim() || 'KHDA Application', projectCode: code, environment: $('sEnv').value, reporter: rep, autoRedact: $('sRedact').checked, outlineElement: $('sOutline').checked };
           await send('saveSettings', { settings });
-          showSettings = false;
+          ui.settings = false;
           await refresh();
           toast('Settings saved');
         } else if (a === 'export') {
           act.disabled = true;
           const r = await send('exportZip');
-          toast(`Exported ${r.count} issue${r.count === 1 ? '' : 's'} → ${r.folder}.zip (Downloads)${r.missing.length ? ' · missing images: ' + r.missing.length : ''}`, r.missing.length ? 'err' : '', 6000);
+          toast(
+            `Exported ${r.count} issue${r.count === 1 ? '' : 's'} → ${r.folder}.zip${r.closedSkipped ? ` · ${r.closedSkipped} closed not included` : ''}${r.missing.length ? ' · missing images: ' + r.missing.length : ''}`,
+            r.missing.length ? 'err' : '',
+            6000
+          );
+          act.disabled = false;
+        } else if (a === 'backup') {
+          act.disabled = true;
+          const r = await send('backup');
+          toast(`Backup of ${r.count} issue${r.count === 1 ? '' : 's'} saved to Downloads`);
           act.disabled = false;
         } else if (a === 'clear') {
           if (!state.issues.length) return;
           if (!confirm(`Delete all ${state.issues.length} issues and screenshots from this computer? Export first if you need them. This cannot be undone.`)) return;
           await send('clearAll');
           await refresh();
-          toast('All issues cleared');
+          toast('All issues deleted');
         }
         return;
       }
@@ -1306,14 +1427,25 @@
   $('list').addEventListener('change', async (e) => {
     try {
       if (e.target.dataset.status) {
-        await send('setStatus', { id: e.target.dataset.status, status: e.target.value });
+        await setStatus(e.target.dataset.status, e.target.value);
+      } else if (e.target.id === 'fPage') {
+        ui.page = e.target.value;
+        saveUi();
+        renderList();
+      } else if (e.target.id === 'fRestore') {
+        const file = e.target.files[0];
+        if (!file) return;
+        const r = await send('restore', { text: await file.text() });
         await refresh();
+        toast(`Restored: ${r.added} added, ${r.updated} updated`, '', 5000);
       } else if (e.target.id === 'fImport') {
         const file = e.target.files[0];
         if (!file) return;
         const r = await send('importJson', { text: await file.text() });
+        ui.view = 'retest';
+        saveUi();
         await refresh();
-        toast(`Updated ${r.updated} issue${r.updated === 1 ? '' : 's'}${r.skipped.length ? ` · ${r.skipped.length} not on this computer` : ''}. Retest and set verified / reopened.`, '', 6000);
+        toast(`Updated ${r.updated} issue${r.updated === 1 ? '' : 's'}${r.skipped.length ? ` · ${r.skipped.length} not on this computer` : ''}. Check the Retest tab.`, '', 6000);
       }
     } catch (err) {
       toast(err.message, 'err', 6000);
@@ -1325,6 +1457,7 @@
     const show = force ?? p.hidden;
     p.hidden = !show;
     setPressed('issues', show);
+    saveUi();
     if (show) {
       renderList();
       refresh();
@@ -1358,5 +1491,11 @@
     },
     destroy,
   };
-  refresh();
+  refresh().then(() => {
+    try {
+      if (JSON.parse(sessionStorage.getItem(UI_KEY) || '{}').open) toggleList(true);
+    } catch {
+      /* ignore */
+    }
+  });
 })();
