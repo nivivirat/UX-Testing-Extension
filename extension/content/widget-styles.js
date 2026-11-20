@@ -238,6 +238,16 @@ textarea.inp { height: auto; min-height: 60px; padding: 9px 12px; resize: vertic
 .errs { background: var(--red-soft); color: #C7262D; border-radius: 6px; padding: 8px 12px; font-size: 12.5px; }
 .errs ul { margin: 0; padding-left: 16px; }
 
+/* reopen-note dialog */
+.dback { position: fixed; inset: 0; background: rgba(0,0,0,.25); pointer-events: auto; }
+.dbox { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(440px, calc(100vw - 32px)); background: var(--bg);
+  border-radius: 12px; box-shadow: var(--shadow-lg); padding: 18px; display: grid; gap: 10px; pointer-events: auto; }
+.dt { font-weight: 600; font-size: 15px; letter-spacing: -0.015em; }
+.dsub { color: var(--gray9); font-size: 12.5px; margin-top: -6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbox textarea.inp { min-height: 96px; }
+.derr { color: #C7262D; font-size: 12px; }
+.dact { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+
 /* toast */
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--fg); color: #fff; padding: 10px 14px;
   border-radius: 8px; box-shadow: var(--shadow-lg); pointer-events: auto; max-width: min(560px, 90vw); font-size: 13px; }

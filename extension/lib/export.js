@@ -84,6 +84,15 @@
       acceptanceCriteria: K.defaultAcceptance(i),
       resolution: i.resolution || null,
       history: i.history || [],
+      // Why the tester reopened it (newest last) + what the developer had tried before.
+      retestFeedback: (i.history || [])
+        .filter((h) => h.reopenedAt)
+        .map((h) => ({
+          reopenedAt: h.reopenedAt,
+          note: h.reopenNote || '',
+          previousFix: [h.status, h.notes || h.verification || h.rootCause].filter(Boolean).join(' — ') || null,
+          filesChanged: h.filesChanged || [],
+        })),
     };
   };
 
@@ -211,6 +220,16 @@
     L.push('The tester\'s description. Fix **everything** it mentions on this element (numbers like "(1)" refer to marks on the screenshot).', '');
     L.push(x.description.split('\n').map((l) => '> ' + l).join('\n'), '');
     if (x.flagged.length) L.push('Values the tester flagged in the inspector:', '', flaggedTable(x), '');
+    if (x.retestFeedback.length) {
+      L.push(`## Retest feedback — reopened ${x.retestFeedback.length}×`, '');
+      L.push("A previous fix did not pass the tester's retest. **Read this first** and do not repeat the earlier attempt.", '');
+      x.retestFeedback.forEach((f, n) => {
+        L.push(`${n + 1}. **${K.fmtLocal(f.reopenedAt)}** — ${f.note ? `"${f.note.replace(/\n/g, ' ')}"` : '_no note_'}`);
+        if (f.previousFix) L.push(`   - Previous fix: ${f.previousFix}`);
+        if (f.filesChanged.length) L.push(`   - Files changed then: ${f.filesChanged.map(code).join(', ')}`);
+      });
+      L.push('');
+    }
     L.push('## Visual evidence', '', evidence(x), '');
     L.push('## Where to look in code', '', whereToLook(x), '');
     L.push('## Figma reference', '');

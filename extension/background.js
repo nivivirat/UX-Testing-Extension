@@ -132,12 +132,13 @@ const handlers = {
     return true;
   },
 
-  async setStatus({ id, status }) {
+  async setStatus({ id, status, note }) {
     const issue = await K.db.getIssue(id);
     if (!issue) throw new Error(`${id} not found`);
     status = K.normStatus(status);
-    if (status === 'reopened' && issue.resolution) {
-      issue.history = [...(issue.history || []), { ...issue.resolution, reopenedAt: K.isoLocal() }];
+    if (status === 'reopened') {
+      // Keep the developer's previous attempt + the tester's reason, so the next fix sees both.
+      issue.history = [...(issue.history || []), { ...(issue.resolution || {}), reopenedAt: K.isoLocal(), reopenNote: (note || '').trim() }];
       issue.resolution = null;
     }
     issue.status = status;

@@ -361,6 +361,7 @@
     <div class="panel" id="insp" hidden style="top:16px;right:16px"></div>
     <div class="panel" id="list" hidden style="right:20px;bottom:72px"></div>
     <div id="modal" hidden></div>
+    <div id="dlg" hidden></div>
     <div class="dock" id="dock">
       <div class="grip" title="Drag to move">⋮⋮</div>
       <button class="dbtn" data-act="inspect" aria-pressed="false" title="Inspect elements — like Figma Dev Mode">${IC.inspect}<span>Inspect</span></button>
@@ -1351,9 +1352,61 @@
       </div>`;
   }
 
+  /** Small in-page dialog asking why an issue is reopened. Resolves to the note, or null if cancelled. */
+  function askReopenNote(issueTitle) {
+    return new Promise((resolve) => {
+      const d = $('dlg');
+      d.hidden = false;
+      d.innerHTML = `
+        <div class="dback"></div>
+        <div class="dbox" role="dialog" aria-modal="true" aria-label="Reopen issue">
+          <div class="dt">Reopen issue</div>
+          <div class="dsub">${esc(issueTitle)}</div>
+          <textarea class="inp" id="dNote" placeholder="What's still wrong? e.g. Padding fixed, but the icon is still missing on the Reports table."></textarea>
+          <div class="derr" id="dErr" hidden>Add a short note so the developer knows what to fix.</div>
+          <div class="dact"><button class="btn ghost" data-d="cancel">Cancel</button><button class="btn primary" data-d="ok">Reopen</button></div>
+        </div>`;
+      const note = $('dNote');
+      note.focus();
+      const done = (v) => {
+        d.hidden = true;
+        d.innerHTML = '';
+        resolve(v);
+      };
+      const ok = () => {
+        const v = note.value.trim();
+        if (!v) {
+          $('dErr').hidden = false;
+          return note.focus();
+        }
+        done(v);
+      };
+      d.onclick = (e) => {
+        const b = e.target.closest('[data-d]');
+        if (b) b.dataset.d === 'ok' ? ok() : done(null);
+        else if (e.target.classList.contains('dback')) done(null);
+      };
+      d.onkeydown = (e) => {
+        if (e.key === 'Escape') done(null);
+        else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ok();
+      };
+    });
+  }
+
+  /** Change status; reopening always asks for a note. Returns false if the user cancelled. */
   async function setStatus(id, status) {
-    await send('setStatus', { id, status });
+    let note = null;
+    if (status === 'reopened') {
+      const it = state.issues.find((x) => x.id === id);
+      note = await askReopenNote((it && it.title) || id);
+      if (note === null) {
+        renderList(); // put the status pill back
+        return false;
+      }
+    }
+    await send('setStatus', { id, status, note });
     await refresh();
+    return true;
   }
 
   $('list').addEventListener('click', async (e) => {
@@ -1379,8 +1432,8 @@
         return renderList();
       }
       if (set) {
-        await setStatus(set.dataset.id, set.dataset.set);
-        return toast(set.dataset.set === 'closed' ? `${set.dataset.id} closed` : `${set.dataset.id} reopened — it goes back to the developer in the next export`);
+        if (!(await setStatus(set.dataset.id, set.dataset.set))) return;
+        return toast(set.dataset.set === 'closed' ? 'Closed' : `Reopened — your note goes to the developer in the next export`);
       }
       if (act) {
         const a = act.dataset.act;

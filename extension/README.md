@@ -56,7 +56,8 @@ full-resolution crop of the selected element (PNG) — usually 30–150 KB per i
   where it was reported, and a status pill — click it to change the status right there.
   Filter with **All / Open / With dev / Closed**.
 - **Retest** tab — issues the developer marked *Fixed*, *Partly fixed* or *Couldn't fix*, with the
-  developer's note. Click **↗**, check the page, then **Close** or **Reopen**.
+  developer's note. Click **↗**, check the page, then **Close** or **Reopen**. Reopening asks what is
+  still wrong; that note goes to the developer in the next export.
 
 Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (you) **Closed** or
 **Reopened**. Issues marked *verified* by older versions show as **Closed**.
