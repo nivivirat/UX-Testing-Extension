@@ -428,7 +428,8 @@
     } catch (e) {
       toast(e.message, 'err');
     }
-    $('count').textContent = state.issues.length;
+    // Toolbar badge = issues still open (open + reopened), matching the Issues tab.
+    $('count').textContent = state.issues.filter((i) => i.status === 'open' || i.status === 'reopened').length;
     if (!$('list').hidden) renderList();
   }
 
@@ -1381,7 +1382,7 @@
       <div class="lhead">
         <div class="srch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input class="inp" id="fSearch" type="search" placeholder="Search issues" value="${esc(ui.q || '')}" autocomplete="off"></div>
         <div class="seg tabs">
-          <button data-view="all" aria-pressed="${ui.view === 'all'}">Issues <span class="cnt">${all.length}</span></button>
+          <button data-view="all" aria-pressed="${ui.view === 'all'}">Issues <span class="cnt" title="Open + reopened">${counts.open}</span></button>
           <button data-view="retest" aria-pressed="${ui.view === 'retest'}">Retest <span class="cnt${retest.length ? ' hot' : ''}">${retest.length}</span></button>
         </div>
         <div class="filters">
