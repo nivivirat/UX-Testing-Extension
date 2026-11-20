@@ -1,0 +1,20 @@
+# Push a tag like v1.5.0 → builds the extension ZIP and attaches it to a GitHub release.
+name: Release extension
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/package.mjs
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --notes "Install: download the ZIP, unzip it, then chrome://extensions → Developer mode → Load unpacked → select the unzipped folder."

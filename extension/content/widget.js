@@ -421,10 +421,24 @@
   draggable($('insp'), '[data-drag]');
   draggable($('list'), '[data-drag]');
 
-  let state = { settings: K.DEFAULT_SETTINGS, issues: [] };
+  // state.issues = issues of the ACTIVE project only; state.allIssues = every project.
+  let state = { settings: K.DEFAULT_SETTINGS, issues: [], allIssues: [], projects: [], activeProject: null, project: null };
+  let autoSwitchDone = false;
   async function refresh() {
     try {
-      state = await send('state');
+      const st = await send('state');
+      // Opening the toolbar on a site that belongs to another project switches to it automatically.
+      if (!autoSwitchDone) {
+        autoSwitchDone = true;
+        const here = st.projects.find((p) => p.origin && p.origin === location.origin);
+        const cur = st.projects.find((p) => p.id === st.activeProject);
+        if (here && cur && here.id !== cur.id && cur.origin !== location.origin) {
+          await send('setActiveProject', { id: here.id });
+          st.activeProject = here.id;
+          toast(`Project: ${here.name}`);
+        }
+      }
+      state = { ...st, allIssues: st.issues, issues: st.issues.filter((i) => i.projectId === st.activeProject), project: st.projects.find((p) => p.id === st.activeProject) };
     } catch (e) {
       toast(e.message, 'err');
     }
@@ -1292,6 +1306,7 @@
   };
   const ICON = {
     trash: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
     go: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M8 7h9v9"/></svg>',
     chev: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
     check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
@@ -1336,6 +1351,22 @@
     </div>`;
   }
 
+  /** New / edit project form (shown under the panel header). */
+  function projectForm() {
+    const isNew = ui.projForm === 'new';
+    const pr = isNew ? { name: '', code: '', environment: 'UAT' } : state.project || {};
+    return `<div class="sform pform">
+      <div class="ftitle">${isNew ? 'New project' : 'Edit project'}</div>
+      <label class="fld"><span>Name</span><input class="inp" id="pName" value="${esc(pr.name)}" placeholder="e.g. KHDA CRM" autocomplete="off"></label>
+      <div class="g2">
+        <label class="fld"><span>Environment</span><select class="inp" id="pEnv">${['UAT', 'SIT', 'DEV', 'STAGING', 'PROD'].map((e) => `<option${e === pr.environment ? ' selected' : ''}>${e}</option>`).join('')}</select></label>
+        <label class="fld"><span>ID prefix <em>Optional</em></span><input class="inp" id="pCode" value="${esc(isNew ? '' : pr.code)}" placeholder="Auto" maxlength="8" autocomplete="off"></label>
+      </div>
+      <div class="frow"><button class="btn primary sm" data-act="saveProject">${isNew ? 'Create' : 'Save'}</button><button class="btn ghost sm" data-act="cancelProject">Cancel</button>
+        ${isNew ? '' : '<span class="sp"></span><button class="link danger" data-act="deleteProject">Delete project</button>'}</div>
+    </div>`;
+  }
+
   function renderList() {
     const p = $('list');
     const s = state.settings;
@@ -1359,25 +1390,24 @@
     const counts = Object.fromEntries(FILTERS.map(([k, , fn]) => [k, all.filter(fn).length]));
     p.innerHTML = `
       <div class="ph" data-drag>
-        <div><div class="ttl">Issues</div><div class="sub">${esc(s.projectName)} · ${esc(s.environment)} · ${esc(s.reporter)}</div></div>
+        <div class="proj">
+          <label class="pswitch" title="Switch project">
+            <select id="fProject" aria-label="Project">${state.projects.map((pr) => `<option value="${esc(pr.id)}"${pr.id === state.activeProject ? ' selected' : ''}>${esc(pr.name)}</option>`).join('')}<option value="__new">＋ New project…</option></select>
+            <span class="pname">${esc((state.project && state.project.name) || 'Project')}</span>${ICON.chev}
+          </label>
+          <div class="sub">${esc((state.project && state.project.environment) || '')}</div>
+        </div>
         <span class="sp"></span>
+        <button class="ibtn" data-act="editProject" title="Edit project">${ICON.edit}</button>
         <button class="ibtn" data-act="settings" title="Settings">⚙</button>
         <button class="ibtn" data-act="closeList" title="Close">${IC.close}</button>
       </div>
-      <div class="sform" ${ui.settings ? '' : 'hidden'}>
-        <label class="fld"><span>Project name</span><input class="inp" id="sName" value="${esc(s.projectName)}"></label>
-        <div class="g2">
-          <label class="fld"><span>Project code</span><input class="inp" id="sCode" value="${esc(s.projectCode)}"></label>
-          <label class="fld"><span>Environment</span><select class="inp" id="sEnv">${['UAT', 'SIT', 'DEV', 'STAGING', 'PROD'].map((e) => `<option${e === s.environment ? ' selected' : ''}>${e}</option>`).join('')}</select></label>
-        </div>
-        <label class="fld"><span>Your tester prefix</span><input class="inp" id="sRep" value="${esc(s.reporter)}"><span class="hint">IDs look like ${esc(s.projectCode)}-${esc(s.reporter)}-001. Give every tester a different prefix.</span></label>
-        <label class="chk"><input type="checkbox" id="sRedact" ${s.autoRedact ? 'checked' : ''}> Blur emails, phones, Emirates IDs, inputs</label>
-        <label class="chk"><input type="checkbox" id="sOutline" ${s.outlineElement ? 'checked' : ''}> Outline the selected element on screenshots</label>
-        <div style="display:flex;gap:8px"><button class="btn primary sm" data-act="saveSettings">Save</button><button class="btn ghost sm" data-act="settings">Cancel</button></div>
-        <div class="fld" style="border-top:1px solid var(--gray2);padding-top:12px"><span>Backup</span>
-          <span class="hint">Everything (issues + screenshots) in one file. Restore adds back anything missing — nothing is deleted.</span>
-          <div style="display:flex;gap:8px"><button class="btn sm" data-act="backup">Download backup</button><label class="btn sm">Restore backup<input type="file" accept=".json,application/json" hidden id="fRestore"></label></div>
-        </div>
+      ${ui.projForm ? projectForm() : ''}
+      <div class="sform" ${ui.settings && !ui.projForm ? '' : 'hidden'}>
+        <label class="fld"><span>Your initials</span><input class="inp" id="sRep" value="${esc(s.reporter)}" maxlength="6" autocomplete="off"></label>
+        <label class="chk"><input type="checkbox" id="sRedact" ${s.autoRedact ? 'checked' : ''}> Blur personal data automatically</label>
+        <label class="chk"><input type="checkbox" id="sOutline" ${s.outlineElement ? 'checked' : ''}> Outline the element on screenshots</label>
+        <div class="slinks"><button class="link" data-act="backup">Download backup</button><label class="link">Restore backup<input type="file" accept=".json,application/json" hidden id="fRestore"></label></div>
       </div>
       <div class="lhead">
         <div class="srch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input class="inp" id="fSearch" type="search" placeholder="Search issues" value="${esc(ui.q || '')}" autocomplete="off"></div>
@@ -1386,7 +1416,7 @@
           <button data-view="retest" aria-pressed="${ui.view === 'retest'}">Retest <span class="cnt${retest.length ? ' hot' : ''}">${retest.length}</span></button>
         </div>
         <div class="filters">
-          ${ui.view === 'all' ? `<div class="chips">${FILTERS.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${ui.filter === k}">${l}<span>${counts[k]}</span></button>`).join('')}</div>` : '<div class="hint">Open each page with ↗, check it, then Close or Reopen.</div>'}
+          ${ui.view === 'all' ? `<div class="chips">${FILTERS.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${ui.filter === k}">${l}<span>${counts[k]}</span></button>`).join('')}</div>` : '<div class="hint">Check, then close or reopen.</div>'}
         </div>
       </div>
       <div class="pb">${body}</div>
@@ -1495,19 +1525,33 @@
         if (a === 'closeList') toggleList(false);
         else if (a === 'settings') {
           ui.settings = !ui.settings;
+          ui.projForm = null;
           renderList();
-        } else if (a === 'saveSettings') {
-          const code = $('sCode').value.trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-          const rep = $('sRep').value.trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-          if (!code || !rep) return toast('Project code and tester prefix are required (letters and numbers).', 'err');
-          const settings = { ...state.settings, projectName: $('sName').value.trim() || 'KHDA Application', projectCode: code, environment: $('sEnv').value, reporter: rep, autoRedact: $('sRedact').checked, outlineElement: $('sOutline').checked };
-          await send('saveSettings', { settings });
-          ui.settings = false;
+        } else if (a === 'editProject') {
+          ui.projForm = ui.projForm === 'edit' ? null : 'edit';
+          renderList();
+          if (ui.projForm) $('pName').focus();
+        } else if (a === 'cancelProject') {
+          ui.projForm = null;
+          renderList();
+        } else if (a === 'saveProject') {
+          const project = { name: $('pName').value, code: $('pCode').value, environment: $('pEnv').value };
+          if (ui.projForm === 'edit') project.id = state.activeProject;
+          await send('saveProject', { project });
+          const created = ui.projForm === 'new';
+          ui.projForm = null;
+          scrollResetPending = true;
           await refresh();
-          toast('Settings saved');
+          toast(created ? `Project "${project.name.trim()}" created` : 'Project saved');
+        } else if (a === 'deleteProject') {
+          if (!confirm(`Delete the project "${state.project.name}"?`)) return;
+          await send('deleteProject', { id: state.activeProject });
+          ui.projForm = null;
+          await refresh();
+          toast('Project deleted');
         } else if (a === 'export') {
           act.disabled = true;
-          const r = await send('exportZip');
+          const r = await send('exportZip', { projectId: state.activeProject });
           toast(
             `Exported ${r.count} open issue${r.count === 1 ? '' : 's'} → ${r.folder}.zip${r.listed ? ` · ${r.listed} other${r.listed === 1 ? '' : 's'} listed by title` : ''}${r.missing.length ? ' · missing images: ' + r.missing.length : ''}`,
             r.missing.length ? 'err' : '',
@@ -1521,8 +1565,8 @@
           act.disabled = false;
         } else if (a === 'clear') {
           if (!state.issues.length) return;
-          if (!confirm(`Delete all ${state.issues.length} issues and screenshots from this computer? Export first if you need them. This cannot be undone.`)) return;
-          await send('clearAll');
+          if (!confirm(`Delete all ${state.issues.length} issues of "${state.project.name}" and their screenshots? Export first if you need them. This cannot be undone.`)) return;
+          await send('clearProject', { projectId: state.activeProject });
           await refresh();
           toast('All issues deleted');
         }
@@ -1559,6 +1603,27 @@
 
   $('list').addEventListener('change', async (e) => {
     try {
+      const id = e.target.id;
+      if (id === 'fProject') {
+        if (e.target.value === '__new') {
+          ui.projForm = 'new';
+          renderList(); // also puts the select back on the current project
+          $('pName').focus();
+          return;
+        }
+        await send('setActiveProject', { id: e.target.value });
+        ui.projForm = null;
+        scrollResetPending = true;
+        await refresh();
+        return;
+      }
+      if (id === 'sRep' || id === 'sRedact' || id === 'sOutline') {
+        const rep = $('sRep').value.trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        if (!rep) return toast('Your initials are used in issue IDs — please fill them in.', 'err');
+        await send('saveSettings', { settings: { ...state.settings, reporter: rep, autoRedact: $('sRedact').checked, outlineElement: $('sOutline').checked } });
+        await refresh();
+        return toast('Saved');
+      }
       if (e.target.dataset.status) {
         await setStatus(e.target.dataset.status, e.target.value);
       } else if (e.target.id === 'fRestore') {

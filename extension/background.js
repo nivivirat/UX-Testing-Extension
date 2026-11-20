@@ -70,14 +70,80 @@ const summary = (i) => {
     reopenCount: (i.history || []).length,
     createdAt: i.createdAt || '',
     updatedAt: i.updatedAt || i.createdAt || '',
+    projectId: K.db.projectOf(i),
   };
 };
+
+/** Shrink an image for export so Claude reads it at full value without wasting tokens.
+ *  Claude bills images by pixels (~w×h/750 tokens) and downsizes anything over ~1568px anyway. */
+async function shrinkForClaude(blob, maxEdge) {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+    const c = new OffscreenCanvas(Math.round(bmp.width * k), Math.round(bmp.height * k));
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    const out = await c.convertToBlob({ type: 'image/webp', quality: 0.88 });
+    return out.size < blob.size || k < 1 ? out : blob;
+  } catch {
+    return blob;
+  }
+}
 
 // ---------- message handlers ----------
 const handlers = {
   async state() {
     const issues = (await K.db.getAllIssues()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    return { settings: await K.db.getSettings(), issues: issues.map(summary) };
+    return {
+      settings: await K.db.getSettings(),
+      projects: await K.db.getProjects(),
+      activeProject: await K.db.getActiveProjectId(),
+      issues: issues.map(summary),
+    };
+  },
+
+  async setActiveProject({ id }) {
+    if (!(await K.db.getProjects()).some((p) => p.id === id)) throw new Error('Project not found');
+    await K.db.setMeta('activeProject', id);
+    return true;
+  },
+
+  /** Create (no id) or update a project. New projects remember the site they were created on. */
+  async saveProject({ project }, sender) {
+    const ps = await K.db.getProjects();
+    const name = String(project.name || '').trim();
+    if (!name) throw new Error('Give the project a name.');
+    const code = (String(project.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || name.split(/\s+/).map((w) => w[0]).join('').toUpperCase().replace(/[^A-Z0-9]/g, '')).slice(0, 8) || 'QA';
+    const env = String(project.environment || 'UAT');
+    if (project.id) {
+      const p = ps.find((x) => x.id === project.id);
+      if (!p) throw new Error('Project not found');
+      Object.assign(p, { name, code, environment: env });
+    } else {
+      let origin = '';
+      try {
+        origin = new URL(sender.tab.url).origin;
+      } catch {
+        /* ignore */
+      }
+      const p = { id: 'p_' + Math.random().toString(36).slice(2, 9), name, code, environment: env, origin, createdAt: K.isoLocal() };
+      ps.push(p);
+      await K.db.setMeta('activeProject', p.id);
+      project = p;
+    }
+    await K.db.saveProjects(ps);
+    return project.id;
+  },
+
+  async deleteProject({ id }) {
+    const ps = await K.db.getProjects();
+    if (ps.length < 2) throw new Error("This is the only project — it can't be deleted.");
+    const n = (await K.db.getAllIssues()).filter((i) => K.db.projectOf(i) === id).length;
+    if (n) throw new Error(`This project still has ${n} issue${n === 1 ? '' : 's'}. Delete them first.`);
+    await K.db.saveProjects(ps.filter((p) => p.id !== id));
+    if ((await K.db.getMeta('activeProject')) === id) await K.db.setMeta('activeProject', ps.find((p) => p.id !== id).id);
+    return true;
   },
 
   async disable(_m, sender) {
@@ -106,8 +172,10 @@ const handlers = {
 
   async saveIssue({ issue, raw, images }) {
     const settings = await K.db.getSettings();
+    if (!issue.projectId) issue.projectId = await K.db.getActiveProjectId();
     if (!issue.id) {
-      issue.id = await K.db.nextId(settings);
+      const project = (await K.db.getProjects()).find((p) => p.id === issue.projectId);
+      issue.id = await K.db.nextId(settings, project);
       issue.createdAt = issue.createdAt || K.isoLocal();
     }
     issue.updatedAt = K.isoLocal();
@@ -201,8 +269,19 @@ const handlers = {
     for (const [key, v] of Object.entries(data.meta || {})) {
       if (key.startsWith('counter:')) await K.db.setMeta(key, Math.max((await K.db.getMeta(key)) || 0, v || 0));
       else if (key === 'settings' && !(await K.db.getMeta('settings'))) await K.db.setMeta(key, v);
+      else if (key === 'projects' && Array.isArray(v)) {
+        const ps = await K.db.getProjects();
+        for (const p of v) if (!ps.some((x) => x.id === p.id)) ps.push(p);
+        await K.db.saveProjects(ps);
+      }
     }
     return { added, updated };
+  },
+
+  /** Delete every issue (and its images) of one project. */
+  async clearProject({ projectId }) {
+    for (const i of await K.db.getAllIssues()) if (K.db.projectOf(i) === projectId) await K.db.deleteIssue(i.id);
+    return true;
   },
 
   async clearAll() {
@@ -210,13 +289,19 @@ const handlers = {
     return true;
   },
 
-  async exportZip() {
-    // Open + reopened issues are exported in full (screenshots, details). Everything else is only
-    // listed by title in the README, so the ZIP stays small and the developer focuses on what's open.
-    const all = await K.db.getAllIssues();
+  async exportZip({ projectId }) {
+    // One project per ZIP. Open + reopened issues in full; everything else listed by title only.
+    const pid = projectId || (await K.db.getActiveProjectId());
+    const project = (await K.db.getProjects()).find((p) => p.id === pid);
+    const all = (await K.db.getAllIssues()).filter((i) => K.db.projectOf(i) === pid);
     if (!all.some(K.exporter.isActive)) throw new Error(all.length ? 'No open or reopened issues to send.' : 'Nothing to export yet.');
-    const settings = await K.db.getSettings();
-    const { folder, files, missing, detailed, listed } = await K.exporter.buildExportFiles(all, settings, K.db.getBlob, { exportedAt: K.isoLocal() });
+    const s = await K.db.getSettings();
+    const settings = { ...s, projectName: project.name, projectCode: project.code, environment: project.environment };
+    const { folder, files, missing, detailed, listed } = await K.exporter.buildExportFiles(all, settings, K.db.getBlob, {
+      exportedAt: K.isoLocal(),
+      // Context screenshot: 1280px when there is an element crop, 1568px for whole-screen issues.
+      transform: (blob, kind, issue) => shrinkForClaude(blob, kind === 'element' ? 1000 : issue.element ? 1280 : 1568),
+    });
     const bytes = await K.makeZipBytes(files.map((f) => ({ name: `${folder}/${f.name}`, data: f.data })));
     await chrome.downloads.download({ url: 'data:application/zip;base64,' + b64(bytes), filename: folder + '.zip', saveAs: false });
     return { folder, count: detailed, listed, missing };

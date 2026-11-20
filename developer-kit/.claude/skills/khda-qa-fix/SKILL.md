@@ -1,79 +1,60 @@
 ---
 name: khda-qa-fix
-description: Process a KHDA Visual QA export folder (qa/KHDA-QA-*) and fix every UI problem at its declared fix scope (global, pattern, component, instance), then write status back to issues.json and each issue's Fix report. Use when the user asks to process, fix or work through a KHDA QA report.
+description: Process a KHDA Visual QA export folder (qa/KHDA-QA-*) and fix every open UI issue at its declared fix level (global, pattern, component, instance), then write status back to issues.json and each issue's Fix report. Use when the user asks to process, fix or work through a KHDA QA report.
 ---
 
-# Process a KHDA Visual QA export
+# Process a KHDA Visual QA export (format 2.0)
 
-Argument: path to the export folder. If not given, use the most recent `qa/KHDA-QA-*` folder and
-say which one you picked.
+Argument: the export folder. If none is given, use the newest `qa/KHDA-QA-*` folder and say which.
 
-## 0. Prepare
+The export is built to be cheap to read. Keep it that way:
+- Read `README.md` once — it holds the work rules and the fix-level definitions (not repeated per issue).
+- Each `issues/<ID>.md` is short and self-sufficient. `issues.json` is only for writing results back.
+- Images cost tokens: open the **element** image first; open the **screen** image only if the
+  description mentions numbered marks "(1)" or page layout, or the element image is not enough.
+- Never open images or files of issues listed under "Other issues" — they are reference only.
 
-1. Read the repo `CLAUDE.md` (KHDA UI rules) — they apply throughout.
-2. Read the export's `README.md` and `issues.json` (`schemaVersion` 1.2).
-3. Find where design tokens live (tokens file, `tailwind.config.*`, global CSS with `--khda-*`
-   variables). You need it for `global` scope and to pick tokens for the values in each description.
-4. Work on `issues[]` (open and reopened). `otherIssues[]` / the README's "Other issues" list is
-   context only — do not change those.
-   For `reopened` issues, read the **Retest feedback** section (`retestFeedback[]`) first: it has the
-   tester's note on what is still wrong and what the previous fix changed — do not repeat it. For `reopened` issues read `history[]` first
-   so you don't repeat the failed attempt.
+## Steps
 
-## 1. Order
-
-Process issues grouped by `scope.level`: **global → pattern → component → instance**.
-Before each issue, re-check whether an earlier fix already resolved it.
-
-## 2. For each issue
-
-One issue = one element (or screen) + the tester's free-text **description**, which may list
-several things. Fix **everything** it mentions.
-
-1. **Read** `issues/<ID>.md` ("What's wrong" = `description`) and **view both images**
-   (annotated `.webp`, element crop `.png`). Numbers like "(1)" in the description refer to the
-   numbered marks on the annotated image. `flagged[]` lists CSS values the tester clicked in the
-   inspector, with their current live values.
-2. **Locate** the code: `element.source` (file:line) → else `element.componentChain` → else the
-   selectors, visible `element.text` and `classList`.
-3. **Fix location from scope** (never lower than the scope):
-   - `global` — change the token/theme value; then replace hard-coded copies of the old value
-     (hex, rgb, arbitrary Tailwind like `text-[#3A3A3A]`) with the token.
-   - `pattern` — inventory first: search with every `scope.patternHints` entry (shared components,
-     raw tags such as `<table>`/`<th>`, ARIA roles, class fragments). Fix the shared component,
-     then bring every other implementation in line (migrate if low-risk, else fix in place).
-   - `component` — the component's own file; list the other usages you checked.
-   - `instance` — the call site only; do not touch shared components.
-4. **Each point in the description**: apply the expected value or change it describes, using an
-   existing design token / component / icon. If a point is ambiguous (no target value given and none
-   in KHDA rules), leave it and report it as not fixed with the question to ask.
-5. **Rules**: no inline styles, no `!important`, no arbitrary Tailwind values for non-instance
-   scopes; logical properties (`ps-`/`pe-`, `ms-`/`me-`) so RTL works.
-6. **Verify** if you can run the app: open `page.route` at `environment.viewport`, screenshot the
-   element (and one other affected page for pattern/global) in `en`/LTR and `ar`/RTL, compare with
-   the evidence. If you cannot, write "not visually verified" — never claim it.
-7. **Record**:
-   - Fill the issue's **Fix report** table (one line per point of the description in "Per point").
-   - In `issues.json` set `status` and `resolution`:
-     ```json
-     {
-       "status": "fixed | partially-fixed | unresolved",
-       "fixedAtLevel": "<equals scope.level unless explained>",
-       "problems": [{ "point": "Padding should be 12px", "status": "fixed", "note": "" }],
-       "rootCause": "...",
-       "filesChanged": ["..."],
-       "affectedUsages": ["routes or components"],
-       "tokensUsed": ["--khda-..."],
-       "verification": "what you checked, or 'not visually verified'",
-       "notes": "scope concerns, risky migrations left in place, missing info",
-       "fixedAt": "<ISO timestamp>"
-     }
-     ```
-   - Keep `issues.json` valid JSON; change only `status` and `resolution`.
-
-## 3. Finish
-
-Print: | ID | Scope | Points fixed | Status | Fixed at | Files changed | Verified |
-
-Then list unresolved points and why, scope concerns, and pages the tester should retest.
-Do not commit unless the user asks.
+1. Read the repo `CLAUDE.md` (KHDA UI rules) and the export `README.md`.
+2. Find where design tokens live (tokens file, `tailwind.config.*`, global CSS `--khda-*`). You need
+   it for GLOBAL fixes and to pick tokens for values in descriptions.
+3. Work through the README's issue table **in order** (global → pattern → component → instance).
+   Before each issue, check whether an earlier fix already solved it.
+4. For each issue (`issues/<ID>.md`):
+   1. **REOPENED?** Read "Retest feedback" first — it says what is still wrong and what the
+      previous fix changed. Do not repeat that fix.
+   2. **Locate** the code: `Source` file:line → else `Component` chain → else `Selector` / classes.
+      "Now:" lists the element's current values; compare them with the description.
+   3. **Fix every point of "What's wrong"** at the issue's **Fix** level, never lower:
+      - GLOBAL: change the token/theme value, then replace hard-coded copies of the old value.
+      - PATTERN: list every implementation first (use "Find every implementation via"), fix the
+        shared component, then bring the others in line.
+      - COMPONENT: the component's own file only; no call-site overrides.
+      - INSTANCE: the call site only; do not touch shared components.
+      Use existing tokens/components/icons. No inline styles, `!important` or arbitrary Tailwind
+      values (except INSTANCE). Use logical properties (`ps-`/`pe-`, `ms-`/`me-`) so RTL works.
+      If a point has no target value and none follows from KHDA rules, do not guess — mark it
+      "not fixed" with the question to ask.
+   4. **Verify** if you can run the app: open the page at the given viewport, check the element
+      (and one other affected page for PATTERN/GLOBAL) in LTR and RTL. Otherwise write
+      "not visually verified" — never claim it.
+   5. **Record**: fill the issue's Fix report row, and in `issues.json` set that issue's `status`
+      and `resolution` (keep the JSON valid; change nothing else):
+      ```json
+      {
+        "status": "fixed | partially-fixed | unresolved",
+        "fixedAtLevel": "global | pattern | component | instance",
+        "problems": [{ "point": "Padding should be 12px", "status": "fixed", "note": "" }],
+        "rootCause": "one line",
+        "filesChanged": ["src/..."],
+        "affectedUsages": ["routes or components"],
+        "tokensUsed": ["--khda-..."],
+        "verification": "what you checked, or 'not visually verified'",
+        "notes": "short",
+        "fixedAt": "<ISO timestamp>"
+      }
+      ```
+5. Finish with: | ID | Level | Points fixed | Status | Files changed | Verified |
+   then unresolved points with the question to ask, and pages the tester should retest.
+   Do not commit unless the user asks.

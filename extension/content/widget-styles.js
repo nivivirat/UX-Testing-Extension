@@ -238,6 +238,21 @@ textarea.inp { height: auto; min-height: 60px; padding: 9px 12px; resize: vertic
 .errs { background: var(--red-soft); color: #C7262D; border-radius: 6px; padding: 8px 12px; font-size: 12.5px; }
 .errs ul { margin: 0; padding-left: 16px; }
 
+/* project switcher + forms */
+.proj { min-width: 0; }
+.pswitch { position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 2px 6px 2px 0; border-radius: 6px; cursor: pointer; }
+.pswitch:hover .pname { color: var(--blue); }
+.pswitch select { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; font-size: 13px; }
+.pname { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pswitch svg { flex: none; color: var(--gray9); }
+.ftitle { font-weight: 600; font-size: 13px; }
+.frow { display: flex; align-items: center; gap: 8px; }
+.frow .sp { flex: 1; }
+.slinks { display: flex; gap: 16px; padding-top: 4px; font-size: 12.5px; }
+.link { color: var(--gray9); font-weight: 500; cursor: pointer; padding: 0; }
+.link:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
+.link.danger { color: var(--red); }
+
 /* list search */
 .srch { position: relative; }
 .srch svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--gray7); pointer-events: none; }

@@ -8,6 +8,8 @@ is wrong, and hand developers a report that Claude Code can fix from.
 | [`extension/`](extension/) | Chrome extension (Manifest V3) — floating toolbar, inspector, issue editor, ZIP export. See its [README](extension/README.md). |
 | [`developer-kit/`](developer-kit/) | What developers add to the app repo: `CLAUDE.md` rules, the `/khda-qa-fix` Claude Code skill, and a Babel plugin that stamps source file:line on elements. |
 | [`EXPORT_FORMAT.md`](EXPORT_FORMAT.md) | The export contract between the extension and Claude Code. |
+| [`PUBLISHING.md`](PUBLISHING.md) | How to share the extension with other testers (Chrome Web Store, Edge, GitHub release). |
+| [`scripts/`](scripts/) | `package.mjs` builds the store ZIP; `make-icons.py` redraws the icons. |
 
 ## Quick start
 

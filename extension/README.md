@@ -67,16 +67,23 @@ Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (
 
 ### Export and retest
 
-- **Export ZIP** saves `KHDA-QA-<date>-<ENV>-<PREFIX>.zip` to Downloads. Only **open and reopened**
-  issues are exported in full (screenshots + details); fixed, partly fixed and closed ones are just
-  listed by title at the end of the README.
+- **Export ZIP** saves `<PROJECT>-QA-<date>-<ENV>-<INITIALS>.zip` to Downloads for the current project.
+  Only **open and reopened** issues are exported in full; the rest are listed by title. Images are
+  resized for Claude (see `../EXPORT_FORMAT.md`).
 - Developers unzip it into `qa/` and run `/khda-qa-fix` (see `../developer-kit`).
 - When they send back `issues.json`: **Import** → the Retest tab opens with what to check.
 
+### Projects
+
+Every issue belongs to a project (e.g. *KHDA CRM*, *KHDA PMS*). Switch with the project name at the
+top of the issues panel (▾); **＋ New project…** creates one. A project remembers the site it was
+created on, so opening the toolbar there switches to it automatically. ✎ renames it or changes its
+environment / ID prefix. Export and *Delete all* work on the current project only.
+
 ### Settings (☰ → ⚙)
 
-Project name, project code, environment, your tester prefix (IDs look like `KHDA-UX1-001`; give
-every tester a different prefix), auto-blur suggestions, element outline, and **Backup / Restore**.
+Your initials (used in issue IDs, e.g. `CRM-NM-001`), two switches (blur personal data, outline the
+element), and **Download / Restore backup**. Changes save automatically.
 
 ## Keeping your issues safe
 

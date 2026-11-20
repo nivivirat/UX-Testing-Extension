@@ -61,9 +61,30 @@
   db.getSettings = async () => ({ ...K.DEFAULT_SETTINGS, ...((await db.getMeta('settings')) || {}) });
   db.saveSettings = (s) => db.setMeta('settings', s);
 
-  /** IDs are <CODE>-<REPORTER>-<NNN>. The counter never resets, so IDs are never reused. */
-  db.nextId = async (settings) => {
-    const prefix = `${settings.projectCode}-${settings.reporter}`;
+  // ---------- projects (folders) ----------
+  // Issues saved before projects existed have no projectId; they belong to LEGACY_PROJECT.
+  db.LEGACY_PROJECT = 'p_default';
+  db.projectOf = (issue) => issue.projectId || db.LEGACY_PROJECT;
+  db.getProjects = async () => {
+    let ps = await db.getMeta('projects');
+    if (!Array.isArray(ps) || !ps.length) {
+      const s = await db.getSettings(); // seed the first project from the old global settings
+      ps = [{ id: db.LEGACY_PROJECT, name: s.projectName || 'KHDA Application', code: s.projectCode || 'KHDA', environment: s.environment || 'UAT', origin: '', createdAt: K.isoLocal() }];
+      await db.setMeta('projects', ps);
+      await db.setMeta('activeProject', db.LEGACY_PROJECT);
+    }
+    return ps;
+  };
+  db.saveProjects = (ps) => db.setMeta('projects', ps);
+  db.getActiveProjectId = async () => {
+    const ps = await db.getProjects();
+    const a = await db.getMeta('activeProject');
+    return ps.some((p) => p.id === a) ? a : ps[0].id;
+  };
+
+  /** IDs are <PROJECT CODE>-<REPORTER>-<NNN>. The counter never resets, so IDs are never reused. */
+  db.nextId = async (settings, project) => {
+    const prefix = `${(project && project.code) || settings.projectCode}-${settings.reporter}`;
     const key = 'counter:' + prefix;
     const n = ((await db.getMeta(key)) || 0) + 1;
     await db.setMeta(key, n);

@@ -1,9 +1,15 @@
-// Builds the export folder defined in EXPORT_FORMAT.md (v1.2). Runs in the service worker and in Node tests.
+// Builds the export folder (format v2.0) — designed to be read by Claude Code with as few tokens as
+// possible while keeping everything needed to fix the issue correctly:
+//   README.md          how to work + fix-level rules ONCE + processing order + "other issues" list
+//   issues/<ID>.md     one short, self-sufficient file per open/reopened issue (no JSON dumps)
+//   issues.json        slim tracking file (status / resolution write-back), no duplicated details
+//   screenshots/       <ID>-element.webp (look first) + <ID>-annotated.webp (context), sized for Claude
+// Runs in the service worker and in Node tests.
 (function (K) {
   'use strict';
   const X = {};
-  X.SCHEMA_VERSION = '1.2';
-  X.TOOL_NAME = 'KHDA Visual QA Capture 1.4.0';
+  X.SCHEMA_VERSION = '2.0';
+  X.TOOL_NAME = 'KHDA Visual QA Capture 1.5.0';
 
   const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
 
@@ -22,319 +28,255 @@
     return `${clean(settings.projectCode) || 'KHDA'}-QA-${d}-${clean(settings.environment) || 'ENV'}-${clean(settings.reporter) || 'QA'}`;
   };
 
-  /** Internal issue record -> issues.json entry. */
-  X.toExportIssue = (src) => {
-    const i = K.ensureDescription({ ...src });
-    const marks = ((i._draw && i._draw.shapes) || []).filter((s) => s.type === 'box' || s.type === 'arrow');
-    const flagged = (i.flagged || []).map((f) => ({ property: f.property, current: f.current, category: K.propCategory(f.property) }));
-    const categories = K.issueCategories(i);
-    const el = i.element
-      ? {
-          tag: i.element.tag,
-          role: i.element.role ?? null,
-          text: i.element.text ?? '',
-          source: i.element.source ?? null,
-          sourceFrom: i.element.sourceFrom ?? null,
-          componentChain: i.element.componentChain || [],
-          componentNamesMinified: !!i.element.componentNamesMinified,
-          selector: i.element.selector ?? null,
-          fallbackSelectors: i.element.fallbackSelectors || [],
-          classList: i.element.classList || [],
-          boundingBox: i.element.boundingBox,
-          computedStyles: i.element.computedStyles || {},
-          cssVariables: i.element.cssVariables || {},
-          instancesOnPage: i.element.instancesOnPage || {},
-        }
-      : null;
-    return {
-      id: i.id,
-      title: i.title,
-      category: categories.length === 1 ? categories[0] : 'multiple',
-      categories,
-      severity: i.severity,
-      status: K.normStatus(i.status),
-      scope: {
-        level: i.scope.level,
-        appliesTo: i.scope.appliesTo || '',
-        patternHints: i.scope.level === 'pattern' ? i.scope.patternHints || null : null,
-        alsoSeenOn: i.scope.alsoSeenOn || [],
-        suggestedByTool: i.scope.suggestedByTool || null,
-      },
-      description: i.description || '',
-      flagged,
-      marks: marks.map((s, n) => ({ n: n + 1, type: s.type })),
-      // v1.0-compatible views
-      observed: i.description || '',
-      expected: '',
-      annotations: marks.map((s, n) => ({ n: n + 1, type: s.type, note: 'See description' })),
-      redactions: i.redactionCount || 0,
-      page: i.page,
-      environment: i.environment,
-      element: el,
-      figma: {
-        url: (i.figma && i.figma.url) || null,
-        fileKey: (i.figma && i.figma.fileKey) || null,
-        nodeId: (i.figma && i.figma.nodeId) || null,
-        screenshot: null,
-      },
-      evidence: {
-        annotated: `screenshots/${i.id}-annotated.${(src._ext && src._ext.annotated) || 'webp'}`,
-        element: el ? `screenshots/${i.id}-element.${(src._ext && src._ext.element) || 'png'}` : null,
-      },
-      acceptanceCriteria: K.defaultAcceptance(i),
-      resolution: i.resolution || null,
-      history: i.history || [],
-      // Why the tester reopened it (newest last) + what the developer had tried before.
-      retestFeedback: (i.history || [])
-        .filter((h) => h.reopenedAt)
-        .map((h) => ({
-          reopenedAt: h.reopenedAt,
-          note: h.reopenNote || '',
-          previousFix: [h.status, h.notes || h.verification || h.rootCause].filter(Boolean).join(' — ') || null,
-          filesChanged: h.filesChanged || [],
-        })),
-    };
-  };
-
   /** Only issues the developer still has to work on are exported in detail. */
   X.isActive = (i) => ['open', 'reopened'].includes(K.normStatus(i.status));
+
   /** One-line record for everything else (listed as text, no screenshots). */
   X.toBrief = (i) => {
     const r = i.resolution || {};
+    return { id: i.id, title: i.title || K.titleFrom(i.description, i.element), status: K.normStatus(i.status), page: (i.page && i.page.route) || '', devNote: r.notes || r.verification || '' };
+  };
+
+  // ---------- small formatting helpers ----------
+  const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  const code = (s) => '`' + String(s).replace(/`/g, "'") + '`';
+  const num = (v) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? Math.round(n * 10) / 10 : 0;
+  };
+  /** rgb()/rgba() -> #RRGGBB(AA); works without a DOM (service worker / Node). */
+  const hex = (v) => {
+    const m = String(v || '').match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?\s*\)/i);
+    if (!m) return String(v || '');
+    const h = (n) => Number(n).toString(16).padStart(2, '0').toUpperCase();
+    const a = m[4] === undefined ? 1 : parseFloat(m[4]);
+    if (a === 0) return 'transparent';
+    return '#' + h(m[1]) + h(m[2]) + h(m[3]) + (a < 1 ? h(Math.round(a * 255)) : '');
+  };
+  const four = (cs, pre, suf = '') => {
+    const v = ['top', 'right', 'bottom', 'left'].map((s) => num(cs[`${pre}-${s}${suf}`]));
+    return v[0] === v[1] && v[1] === v[2] && v[2] === v[3] ? `${v[0]}` : v[0] === v[2] && v[1] === v[3] ? `${v[0]} ${v[1]}` : v.join(' ');
+  };
+
+  /** The element's current look in one line (replaces the old 60-property JSON dump). */
+  function currentStyles(el) {
+    const cs = (el && el.computedStyles) || {};
+    if (!Object.keys(cs).length) return '';
+    const b = el.boundingBox || {};
+    const parts = [];
+    parts.push(`size ${num(b.width)}×${num(b.height)}`);
+    const fam = String(cs['font-family'] || '').split(',')[0].replace(/["']/g, '').trim();
+    const lh = cs['line-height'] === 'normal' ? 'normal' : num(cs['line-height']);
+    parts.push(`font ${fam} ${num(cs['font-size'])}/${lh} ${cs['font-weight'] || ''}`.trim());
+    parts.push(`color ${hex(cs.color)}`);
+    const bg = hex(cs['background-color']);
+    if (bg && bg !== 'transparent') parts.push(`bg ${bg}`);
+    parts.push(`padding ${four(cs, 'padding')}`);
+    const m = four(cs, 'margin');
+    if (m !== '0') parts.push(`margin ${m}`);
+    const bw = four(cs, 'border', '-width');
+    if (bw !== '0') parts.push(`border ${bw} ${cs['border-top-style'] || ''} ${hex(cs['border-top-color'])}`.trim());
+    const rad = ['top-left', 'top-right', 'bottom-right', 'bottom-left'].map((c) => num(cs[`border-${c}-radius`]));
+    if (rad.some(Boolean)) parts.push(`radius ${rad.every((r) => r === rad[0]) ? rad[0] : rad.join(' ')}`);
+    if (/flex|grid/.test(cs.display || '')) {
+      parts.push(`${cs.display}${cs['flex-direction'] && cs.display.includes('flex') ? ' ' + cs['flex-direction'] : ''}`);
+      if (cs.gap && cs.gap !== 'normal') parts.push(`gap ${cs.gap}`);
+      if (cs['align-items'] && cs['align-items'] !== 'normal') parts.push(`align ${cs['align-items']}`);
+      if (cs['justify-content'] && cs['justify-content'] !== 'normal') parts.push(`justify ${cs['justify-content']}`);
+    }
+    if (cs['text-align'] && !/start|left/.test(cs['text-align'])) parts.push(`text-align ${cs['text-align']}`);
+    if (cs['box-shadow'] && cs['box-shadow'] !== 'none') parts.push('has box-shadow');
+    return parts.join(' · ');
+  }
+
+  /** Internal issue -> everything the Markdown/JSON writers need (computed once). */
+  X.toExportIssue = (src) => {
+    const i = K.ensureDescription({ ...src });
+    const el = i.element || null;
+    const ext = src._ext || {};
+    const level = (i.scope && i.scope.level) || 'instance';
+    const marks = ((i._draw && i._draw.shapes) || []).filter((s) => s.type === 'box' || s.type === 'arrow').length;
     return {
       id: i.id,
-      title: i.title || K.titleFrom(i.description, i.element),
+      title: i.title || K.titleFrom(i.description, el),
       status: K.normStatus(i.status),
-      page: (i.page && i.page.route) || '',
-      devNote: r.notes || r.verification || '',
+      severity: i.severity || 'medium',
+      scope: {
+        level,
+        appliesTo: (i.scope && i.scope.appliesTo) || K.defaultAppliesTo(level, el),
+        patternHints: level === 'pattern' ? (i.scope && i.scope.patternHints) || null : null,
+        alsoSeenOn: (i.scope && i.scope.alsoSeenOn) || [],
+      },
+      description: i.description || '',
+      flagged: i.flagged || [],
+      marks,
+      redactions: i.redactionCount || 0,
+      page: { url: (i.page && i.page.url) || '', route: (i.page && i.page.route) || '/', lang: (i.page && i.page.lang) || '', dir: (i.page && i.page.dir) || 'ltr' },
+      viewport: (i.environment && i.environment.viewport) || null,
+      element: el,
+      figma: i.figma && i.figma.url ? { url: i.figma.url, nodeId: i.figma.nodeId || null } : null,
+      files: {
+        md: `issues/${i.id}.md`,
+        element: el && ext.element ? `screenshots/${i.id}-element.${ext.element}` : null,
+        annotated: ext.annotated ? `screenshots/${i.id}-annotated.${ext.annotated}` : null,
+      },
+      acceptance: K.defaultAcceptance(i),
+      resolution: i.resolution || null,
+      history: i.history || [],
+      retest: (i.history || [])
+        .filter((h) => h.reopenedAt)
+        .map((h) => ({ at: h.reopenedAt, note: h.reopenNote || '', previousFix: [h.status, h.notes || h.verification || h.rootCause].filter(Boolean).join(' — '), files: h.filesChanged || [] })),
     };
   };
 
-  X.buildIssuesJson = (ex, settings, exportedAt, briefs = []) => {
-    const withUrl = ex.find((x) => x.page && x.page.url);
-    let baseUrl = null;
-    try {
-      baseUrl = withUrl ? new URL(withUrl.page.url).origin : null;
-    } catch {
-      /* ignore */
-    }
-    return {
-      schemaVersion: X.SCHEMA_VERSION,
-      export: { project: settings.projectName, environment: settings.environment, baseUrl, reporter: settings.reporter, exportedAt, tool: X.TOOL_NAME },
-      issues: ex,
-      // Not part of this round (fixed / waiting for retest / closed): listed for context only.
-      otherIssues: briefs,
-    };
-  };
+  /** Slim tracking file: Claude writes status/resolution back here. Details live in the .md files. */
+  X.buildIssuesJson = (ex, settings, exportedAt, briefs = []) => ({
+    schemaVersion: X.SCHEMA_VERSION,
+    export: { project: settings.projectName, environment: settings.environment, reporter: settings.reporter, exportedAt, tool: X.TOOL_NAME },
+    issues: ex.map((x) => ({ id: x.id, title: x.title, status: x.status, severity: x.severity, scope: x.scope.level, page: x.page.route, file: x.files.md, resolution: x.resolution, history: x.history })),
+    otherIssues: briefs,
+  });
 
-  // ---------- Markdown ----------
-
-  const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
-  const code = (s) => '`' + String(s).replace(/`/g, "'") + '`';
-  const table2 = (rows) => '| | |\n|---|---|\n' + rows.map(([k, v]) => `| **${k}** | ${cell(v)} |`).join('\n');
-
-  function headerTable(x) {
-    const vp = x.environment && x.environment.viewport;
-    return table2([
-      ['Severity', K.severityLabel(x.severity)],
-      ['Categories', x.categories.map(K.categoryLabel).join(', ')],
-      ['Status', x.status],
-      ['Page', `${(x.page && x.page.title) || ''} — ${code((x.page && x.page.route) || '/')}`],
-      ['URL', (x.page && x.page.url) || ''],
-      ['Viewport', vp ? `${vp.width} × ${vp.height}, DPR ${x.environment.devicePixelRatio ?? 1}` : ''],
-      ['Language / direction', `${(x.page && x.page.lang) || '—'} / ${((x.page && x.page.dir) || 'ltr').toUpperCase()}`],
-      ['Captured', [K.fmtLocal(x.environment && x.environment.capturedAt), x.environment && x.environment.browser, x.environment && x.environment.os].filter(Boolean).join(', ')],
-    ]);
-  }
-
-  function flaggedTable(x) {
-    const cs = (x.element && x.element.computedStyles) || {};
-    const vars = (x.element && x.element.cssVariables) || {};
-    const rows = x.flagged.map((f) => {
-      const toks = Object.entries(vars).filter(([, v]) => K.normValue(v) === K.normValue(f.current)).map(([k]) => code(k));
-      return `| ${code(f.property)} | ${cell(f.current || cs[f.property] || '—')} | ${toks.join(', ') || '—'} |`;
-    });
-    return '| Property | Current value (live) | Token with this value |\n|---|---|---|\n' + rows.join('\n');
-  }
-
-  function whereToLook(x) {
-    const el = x.element;
-    if (!el) return `No single element was selected — this is a whole-screen issue.\nUse the page route ${code((x.page && x.page.route) || '/')} and the screenshots to locate the page component.`;
-    const rows = [];
-    if (el.source) {
-      let v = code(el.source);
-      if (el.sourceFrom === 'ancestor-attribute') v += ' (nearest stamped ancestor)';
-      if (x.scope.level === 'instance') v += ' ← call site, edit here';
-      rows.push(['Source (captured element)', v]);
-    } else rows.push(['Source (captured element)', '_Not captured — the app build has no `data-source` attributes. Use the component chain and selectors._']);
-    if (el.componentChain.length) {
-      let v = el.componentChain.map(code).join(' → ');
-      if (el.componentNamesMinified) v += ' _(names look minified — production build)_';
-      if (x.scope.level === 'instance') v += ' (do not edit shared components)';
-      rows.push(['Component chain', v]);
-    }
-    if (el.classList.length) {
-      let v = code(el.classList.join(' '));
-      const arb = el.classList.filter((c) => /\[[^\]]+\]/.test(c));
-      if (arb.length) v += ` ← hard-coded arbitrary value${arb.length > 1 ? 's' : ''}: ${arb.map(code).join(', ')}`;
-      rows.push(['Classes on element', v]);
-    }
-    const inst = el.instancesOnPage || {};
-    if (inst.sameComponent != null) rows.push(['Same component on this page', `${inst.sameComponent} instance${inst.sameComponent === 1 ? '' : 's'}`]);
-    if (inst.sameClassList != null) rows.push(['Same tag + class list on this page', `${inst.sameClassList} element${inst.sameClassList === 1 ? '' : 's'}`]);
-    if (x.scope.level === 'pattern' && x.scope.patternHints) {
-      const h = x.scope.patternHints;
-      const parts = [];
-      if (h.tags && h.tags.length) parts.push('tags ' + h.tags.map(code).join(', '));
-      if (h.roles && h.roles.length) parts.push('roles ' + h.roles.map(code).join(', '));
-      if (h.components && h.components.length) parts.push('components ' + h.components.map(code).join(', '));
-      if (h.classFragments && h.classFragments.length) parts.push('class fragments ' + h.classFragments.map(code).join(', '));
-      if (parts.length) rows.push(['Pattern hints', parts.join(' · ')]);
-    }
-    const vars = Object.entries(el.cssVariables || {});
-    if (vars.length) rows.push(['Design tokens matching current values', vars.map(([k, v]) => `${code(k)} = ${code(v)}`).join(' · ')]);
-    if (el.selector) rows.push(['Selector', code(el.selector)]);
-    if (el.fallbackSelectors.length) rows.push(['Fallback selectors', el.fallbackSelectors.map(code).join(' · ')]);
-    return table2(rows);
-  }
-
-  function evidence(x) {
-    const e = x.evidence;
-    const out = [`Annotated screenshot${x.marks.length ? ' (numbered marks are referred to in "What\'s wrong")' : ''}:`, '', `![Annotated screenshot](../${e.annotated})`, ''];
-    if (e.element) out.push('Selected element (crop):', '', `![Element crop](../${e.element})`, '');
-    if (x.element) out.push('The selected element is outlined with a dashed blue box on the annotated screenshot.');
-    if (x.redactions) out.push('', `Sensitive data was redacted (pixelated) in ${x.redactions} area${x.redactions === 1 ? '' : 's'} before export — ignore those blocks.`);
-    return out.join('\n');
-  }
-
-  function fixReport(x) {
-    const r = x.resolution;
-    const v = (k) => (r && r[k] != null ? (Array.isArray(r[k]) ? r[k].join(', ') : typeof r[k] === 'object' ? JSON.stringify(r[k]) : String(r[k])) : '');
-    const rows = [
-      ['Status', r ? v('status') : 'fixed / partially-fixed / unresolved'],
-      ['Fixed at level', v('fixedAtLevel')],
-      ['Per point', r ? v('problems') : 'one line per point in "What\'s wrong": fixed / not fixed'],
-      ['Root cause', v('rootCause')],
-      ['Files changed', v('filesChanged')],
-      ['Affected usages / pages', v('affectedUsages')],
-      ['Tokens used', v('tokensUsed')],
-      ['Verification', v('verification')],
-      ['Notes', v('notes')],
-    ];
-    return (r ? '' : '_To be completed by Claude._\n\n') + table2(rows);
-  }
-
+  // ---------- issue Markdown (short and self-sufficient) ----------
   X.buildIssueMd = (x) => {
-    const scope = K.SCOPES[x.scope.level];
+    const el = x.element;
+    const vp = x.viewport;
     const L = [];
-    L.push(`# ${x.id} — ${x.title}`, '', headerTable(x), '');
-    L.push(`## Fix scope: ${scope.label.toUpperCase()} — ${x.scope.appliesTo || scope.short}`, '');
-    L.push(K.SCOPE_INSTRUCTIONS[x.scope.level].map((l) => '> ' + l).join('\n'), '');
-    if (x.scope.alsoSeenOn.length) L.push(`Tester also saw this on: ${x.scope.alsoSeenOn.map(code).join(', ')}`, '');
-    if (x.scope.suggestedByTool && x.scope.suggestedByTool !== x.scope.level) L.push(`Note: the tool suggested \`${x.scope.suggestedByTool}\`; the tester chose \`${x.scope.level}\`.`, '');
+    L.push(`# ${x.id} · ${x.title}`, '');
+    L.push(
+      `**Fix:** ${x.scope.level.toUpperCase()} — ${x.scope.appliesTo} · **Severity:** ${K.severityLabel(x.severity)}` +
+        `${x.status === 'reopened' ? ' · **REOPENED**' : ''} · **Page:** ${code(x.page.route)}${vp ? ` at ${vp.width}×${vp.height}` : ''}${x.page.lang ? `, ${x.page.lang}/${x.page.dir.toUpperCase()}` : ''}`,
+      ''
+    );
+    if (x.scope.alsoSeenOn.length) L.push(`Also seen on: ${x.scope.alsoSeenOn.map(code).join(', ')}`, '');
+
     L.push("## What's wrong", '');
-    L.push('The tester\'s description. Fix **everything** it mentions on this element (numbers like "(1)" refer to marks on the screenshot).', '');
     L.push(x.description.split('\n').map((l) => '> ' + l).join('\n'), '');
-    if (x.flagged.length) L.push('Values the tester flagged in the inspector:', '', flaggedTable(x), '');
-    if (x.retestFeedback.length) {
-      L.push(`## Retest feedback — reopened ${x.retestFeedback.length}×`, '');
-      L.push("A previous fix did not pass the tester's retest. **Read this first** and do not repeat the earlier attempt.", '');
-      x.retestFeedback.forEach((f, n) => {
-        L.push(`${n + 1}. **${K.fmtLocal(f.reopenedAt)}** — ${f.note ? `"${f.note.replace(/\n/g, ' ')}"` : '_no note_'}`);
-        if (f.previousFix) L.push(`   - Previous fix: ${f.previousFix}`);
-        if (f.filesChanged.length) L.push(`   - Files changed then: ${f.filesChanged.map(code).join(', ')}`);
+    if (x.flagged.length) {
+      const vars = (el && el.cssVariables) || {};
+      const tok = (v) => Object.entries(vars).filter(([, tv]) => String(tv).trim().toLowerCase() === String(v).trim().toLowerCase()).map(([k]) => k)[0];
+      L.push('Flagged in the inspector (current values): ' + x.flagged.map((f) => `${code(f.property)} ${f.current}${tok(f.current) ? ` (= ${code(tok(f.current))})` : ''}`).join(' · '), '');
+    }
+
+    if (x.retest.length) {
+      L.push(`## Retest feedback — reopened ${x.retest.length}×`, '');
+      L.push('The previous fix failed retest. Do **not** repeat it.', '');
+      x.retest.forEach((r, n) => {
+        L.push(`${n + 1}. ${K.fmtLocal(r.at)} — "${String(r.note).replace(/\s+/g, ' ')}"${r.previousFix ? ` · previous fix: ${r.previousFix}` : ''}${r.files.length ? ` · files: ${r.files.map(code).join(', ')}` : ''}`);
       });
       L.push('');
     }
-    L.push('## Visual evidence', '', evidence(x), '');
-    L.push('## Where to look in code', '', whereToLook(x), '');
-    L.push('## Figma reference', '');
-    L.push(x.figma.url ? `[Open Figma frame](${x.figma.url})${x.figma.nodeId ? ` (node \`${x.figma.nodeId}\`)` : ''}` : '_No Figma frame linked._', '');
-    L.push('Developers have no Figma access — use the description and screenshots as the design source of truth.', '');
-    L.push('## Acceptance criteria', '', ...x.acceptanceCriteria.map((c, n) => `${n + 1}. ${c}`), '');
-    L.push('## Captured element data', '');
-    if (x.element) L.push('<details>', '<summary>JSON</summary>', '', '```json', JSON.stringify(x.element, null, 2), '```', '', '</details>', '');
-    else L.push('_No element selected._', '');
-    L.push('## Fix report', '', fixReport(x), '');
+
+    L.push('## Where to look', '');
+    if (!el) L.push(`- Whole-screen issue — start from the page component for ${code(x.page.route)}.`);
+    else {
+      L.push(`- Source: ${el.source ? code(el.source) + (el.sourceFrom === 'ancestor-attribute' ? ' (nearest parent)' : '') : 'not captured — use the component and selector'}`);
+      if (el.componentChain && el.componentChain.length) {
+        const inst = el.instancesOnPage || {};
+        L.push(`- Component: ${el.componentChain.slice(-4).map(code).join(' › ')}${inst.sameComponent > 1 ? ` (${inst.sameComponent} on this page)` : ''}${el.componentNamesMinified ? ' — names minified' : ''}`);
+      }
+      if (el.selector) L.push(`- Selector: ${code(el.selector)}`);
+      if (el.classList && el.classList.length) {
+        const arb = el.classList.filter((c) => /\[[^\]]+\]/.test(c));
+        L.push(`- Classes: ${code(el.classList.slice(0, 14).join(' '))}${arb.length ? ` — hard-coded: ${arb.map(code).join(', ')}` : ''}`);
+      }
+      const cur = currentStyles(el);
+      if (cur) L.push(`- Now: ${cur}`);
+      const vars = Object.entries(el.cssVariables || {}).slice(0, 6);
+      if (vars.length) L.push(`- Tokens matching current values: ${vars.map(([k, v]) => `${code(k)}=${v}`).join(', ')}`);
+      const h = x.scope.patternHints;
+      if (h) {
+        const parts = [];
+        if (h.components && h.components.length) parts.push('components ' + h.components.map(code).join(', '));
+        if (h.tags && h.tags.length) parts.push('tags ' + h.tags.map(code).join(', '));
+        if (h.roles && h.roles.length) parts.push('roles ' + h.roles.map(code).join(', '));
+        if (h.classFragments && h.classFragments.length) parts.push('classes ' + h.classFragments.map(code).join(', '));
+        if (parts.length) L.push(`- Find every implementation via: ${parts.join(' · ')}`);
+      }
+    }
+    L.push('');
+
+    L.push('## Evidence', '');
+    if (x.files.element) L.push(`- Element (view first): ![element](../${x.files.element})`);
+    if (x.files.annotated)
+      L.push(
+        `- Screen${x.files.element ? ' (open only if the description mentions marks or layout)' : ''}: ![screen](../${x.files.annotated})` +
+          ` — ${[x.marks ? 'red numbers = "(1)", "(2)" in the description' : '', el ? 'blue dashed box = the element' : '', x.redactions ? 'pixelated = redacted, ignore' : ''].filter(Boolean).join('; ')}`
+      );
+    if (x.figma) L.push(`- Figma: ${x.figma.url}${x.figma.nodeId ? ` (node ${x.figma.nodeId})` : ''} — developers may not have access; the description wins.`);
+    L.push('');
+
+    L.push('## Done when', '', ...x.acceptance.map((c, n) => `${n + 1}. ${c}`), '');
+    L.push('## Fix report', '', '| Status | Fixed at level | Per point | Files changed | Verified |', '|---|---|---|---|---|', '|  |  |  |  |  |', '');
     return L.join('\n');
   };
 
+  // ---------- README (rules once, then the list) ----------
   X.buildReadme = (ex, settings, exportedAt, briefs = []) => {
     const sev = ['critical', 'high', 'medium', 'low']
       .map((s) => [ex.filter((x) => x.severity === s).length, K.severityLabel(s).toLowerCase()])
       .filter(([n]) => n)
       .map(([n, s]) => `${n} ${s}`)
       .join(', ');
-    const open = ex.filter((x) => ['open', 'reopened'].includes(x.status)).length;
+    const reopened = ex.filter((x) => x.status === 'reopened').length;
     const L = [
-      `# ${settings.projectCode || 'KHDA'} Visual QA Report — ${settings.environment} — ${K.fmtLocal(exportedAt).slice(0, 10)}`,
+      `# ${settings.projectName} — Visual QA — ${settings.environment} — ${K.fmtLocal(exportedAt).slice(0, 10)}`,
       '',
-      '| | |',
-      '|---|---|',
-      `| **Project** | ${cell(settings.projectName)} |`,
-      `| **Environment** | ${cell(settings.environment)} |`,
-      `| **Reporter** | ${cell(settings.reporter)} |`,
-      `| **Exported** | ${K.fmtLocal(exportedAt)} |`,
-      `| **To fix** | ${ex.length} open issue${ex.length === 1 ? '' : 's'}${sev ? ` (${sev})` : ''}${briefs.length ? ` · ${briefs.length} other${briefs.length === 1 ? '' : 's'} listed at the end` : ''} |`,
-      `| **Format** | KHDA Visual QA export v${X.SCHEMA_VERSION} — see \`issues.json\` |`,
+      `${ex.length} open issue${ex.length === 1 ? '' : 's'} to fix${sev ? ` (${sev})` : ''}${reopened ? `, ${reopened} reopened` : ''}. Reporter ${settings.reporter}.`,
       '',
-      '## For Claude: how to process this report',
+      '## How to work',
       '',
-      "1. Read the project's `CLAUDE.md` (KHDA UI rules) before anything else.",
-      '2. Process issues **in the order below** — grouped by fix scope, highest first. A global/pattern',
-      '   fix may already resolve a later issue; re-check each issue before editing.',
-      '3. For each issue, open `issues/<ID>.md`, look at every linked screenshot, and fix **everything**',
-      '   in its "What\'s wrong" section. Follow its **Fix scope** exactly — fix at that level, never lower.',
-      '4. After each issue, fill in its **Fix report** (one line per point) and update `status` +',
-      '   `resolution` in `issues.json`.',
-      '5. Finish with a summary table: ID | status | level fixed at | files changed.',
+      "1. Read the repo's `CLAUDE.md` (KHDA UI rules) first.",
+      '2. Go through the issues in the table below, in order. A global/pattern fix may already solve a later issue — re-check before editing.',
+      '3. For each issue open `issues/<ID>.md`. View the **element** image first; open the **screen** image only when the description refers to marks or layout.',
+      '4. Fix everything in "What\'s wrong" at the issue\'s **Fix** level (rules below). Reopened issues: read "Retest feedback" first.',
+      '5. Verify at the given page and viewport (LTR and RTL when the app has Arabic). If you cannot run the app, say "not visually verified".',
+      '6. Fill the issue\'s **Fix report** and set `status` + `resolution` in `issues.json`. Finish with a table: ID | status | level | files.',
       '',
-      'Developers do not have Figma access. Treat the descriptions and screenshots as the',
-      'design source of truth.',
+      '## Fix levels',
       '',
-      '## Issues — processing order',
+      ...K.SCOPE_ORDER.map((k) => `- **${k.toUpperCase()}** — ${K.SCOPE_INSTRUCTIONS[k].join(' ').replace(/\s+/g, ' ')}`),
+      '',
+      'Never use inline styles, `!important`, page-level overrides or arbitrary Tailwind values unless the level is INSTANCE.',
+      '',
+      '## Issues (in order)',
+      '',
+      '| # | Issue | Fix | Severity | Page |',
+      '|---|---|---|---|---|',
+      ...ex.map(
+        (x, n) =>
+          `| ${n + 1} | [${x.id}](issues/${x.id}.md) ${cell(x.title)}${x.status === 'reopened' ? ' **(reopened)**' : ''} | ${x.scope.level}${x.scope.level === 'pattern' ? ` — ${cell(x.scope.appliesTo)}` : ''} | ${K.severityLabel(x.severity)} | ${code(x.page.route)} |`
+      ),
+      '',
     ];
-    const titles = { global: 'Global (design tokens / theme)', pattern: 'Pattern (all elements of a kind)', component: 'Component', instance: 'Instance (this element only)' };
-    K.SCOPE_ORDER.forEach((lvl, n) => {
-      const xs = ex.filter((x) => x.scope.level === lvl);
-      L.push('', `### ${n + 1}. ${titles[lvl]}`, '');
-      if (!xs.length) return L.push('_None._');
-      const mid = lvl === 'instance' ? 'Page' : 'Applies to';
-      L.push(`| ID | Title | ${mid} | Severity | Status |`, '|---|---|---|---|---|');
-      for (const x of xs) {
-        const m = lvl === 'instance' ? code((x.page && x.page.route) || '/') : x.scope.appliesTo || K.SCOPES[lvl].short;
-        L.push(`| [${x.id}](issues/${x.id}.md) | ${cell(x.title)} | ${cell(m)} | ${K.severityLabel(x.severity)} | ${x.status} |`);
-      }
-    });
     if (briefs.length) {
-      L.push('', '## Other issues — for reference only (do not work on these)', '');
-      L.push("Already fixed, waiting for the tester's retest, or closed. No details or screenshots are included.", '');
+      L.push('## Other issues — reference only, do not work on these', '');
       for (const st of ['fixed', 'partially-fixed', 'unresolved', 'closed']) {
         const bs = briefs.filter((b) => b.status === st);
-        if (!bs.length) continue;
-        L.push(`**${K.STATUS_LABEL[st]} (${bs.length})**`, '');
-        for (const b of bs) L.push(`- ${b.id} — ${String(b.title).replace(/\s+/g, ' ')}${b.page ? ` (${code(b.page)})` : ''}`);
-        L.push('');
+        if (bs.length) L.push(`- **${K.STATUS_LABEL[st]}:** ${bs.map((b) => `${b.id} ${String(b.title).replace(/\s+/g, ' ')}`).join('; ')}`);
       }
+      L.push('');
     }
-    L.push('');
     return L.join('\n');
   };
 
-  /** issues: internal records. getBlob(key) -> Blob|undefined. */
-  X.buildExportFiles = async (issues, settings, getBlob, { now = new Date(), exportedAt } = {}) => {
+  /**
+   * issues: internal records of ONE project. getBlob(key) -> Blob|undefined.
+   * transform(blob, kind, issue) -> Promise<Blob> (optional; resize/encode for Claude).
+   */
+  X.buildExportFiles = async (issues, settings, getBlob, { now = new Date(), exportedAt, transform } = {}) => {
     const folder = X.exportFolderName(settings, now);
     const EXT = { 'image/webp': 'webp', 'image/png': 'png', 'image/jpeg': 'jpg' };
-    // Two images per issue: annotated screenshot + element crop. Extensions follow the stored type
-    // (older issues were saved as PNG).
-    const blobs = {};
-    const withExt = [];
     const active = issues.filter(X.isActive);
     const briefs = issues.filter((i) => !X.isActive(i)).map(X.toBrief).sort((a, b) => a.id.localeCompare(b.id));
+    const blobs = {};
+    const withExt = [];
     for (const i of X.sortIssues(active)) {
       const ext = {};
       for (const kind of ['annotated', 'element']) {
-        const b = await getBlob(`${i.id}:${kind}`);
+        if (kind === 'element' && !i.element) continue;
+        let b = await getBlob(`${i.id}:${kind}`);
+        if (b && transform) b = await transform(b, kind, i);
         blobs[`${i.id}:${kind}`] = b;
         if (b) ext[kind] = EXT[b.type] || 'png';
       }
@@ -347,13 +289,11 @@
     ];
     const missing = [];
     for (const x of ex) {
-      files.push({ name: `issues/${x.id}.md`, data: X.buildIssueMd(x) });
-      for (const kind of ['annotated', 'element']) {
-        const path = x.evidence[kind];
-        if (!path) continue;
-        const blob = blobs[`${x.id}:${kind}`];
-        if (blob) files.push({ name: path, data: blob });
-        else missing.push(path);
+      files.push({ name: x.files.md, data: X.buildIssueMd(x) });
+      for (const kind of ['element', 'annotated']) {
+        const b = blobs[`${x.id}:${kind}`];
+        if (x.files[kind] && b) files.push({ name: x.files[kind], data: b });
+        else if (kind === 'annotated' || x.element) missing.push(`${x.id}:${kind}`);
       }
     }
     return { folder, files, missing, detailed: ex.length, listed: briefs.length };

@@ -9,7 +9,7 @@ and especially when processing a KHDA Visual QA export (`qa/KHDA-QA-*/`).
 ## 1. Source of truth
 
 1. For QA issues, the issue's **What's wrong** description and screenshots are the design
-   source of truth. Developers have no Figma access; do not ask for it.
+   source of truth (the description wins over a Figma link). Developers have no Figma access; do not ask for it.
    One description can list several things wrong with the same element — fix all of them.
 2. Never invent spacing, typography, colours, dimensions or component styles. If a value is
    missing or ambiguous, mark the issue `unresolved` and say exactly what is missing.
