@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "KHDA Visual QA Capture",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Inspect KHDA screens like Figma Dev Mode, mark UI problems and export developer-ready reports for Claude Code. All data stays on this computer.",
   "minimum_chrome_version": "116",
   "permissions": ["scripting", "activeTab", "storage", "downloads"],

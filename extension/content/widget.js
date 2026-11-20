@@ -1227,12 +1227,12 @@
 
   // ======================================================================= issues panel
   // Two views: "Issues" (everything, filterable) and "Retest" (developer said fixed → check again).
-  const UI_KEY = 'kqa-ui'; // remembers open panel/view across page navigation (sessionStorage, no data)
+  const UI_KEY = 'kqa-ui-v2'; // remembers open panel/view across page navigation (sessionStorage, no data)
   const ui = (() => {
     try {
-      return { view: 'all', filter: 'all', q: '', scroll: 0, settings: false, ...JSON.parse(sessionStorage.getItem(UI_KEY) || '{}') };
+      return { view: 'all', filter: 'open', q: '', scroll: 0, settings: false, ...JSON.parse(sessionStorage.getItem(UI_KEY) || '{}') };
     } catch {
-      return { view: 'all', filter: 'all', q: '', scroll: 0, settings: false };
+      return { view: 'all', filter: 'open', q: '', scroll: 0, settings: false };
     }
   })();
   /**
@@ -1277,10 +1277,10 @@
   };
 
   const FILTERS = [
-    ['all', 'All', () => true],
     ['open', 'Open', (i) => i.status === 'open' || i.status === 'reopened'],
     ['dev', 'With dev', (i) => K.RETEST.includes(i.status)],
     ['closed', 'Closed', (i) => i.status === 'closed'],
+    ['all', 'All', () => true],
   ];
   const pageKey = (i) => i.route || '/';
   /** Where the bug was reported. Older saves may lack the full URL — rebuild it from the path. */
@@ -1338,7 +1338,9 @@
   function renderList() {
     const p = $('list');
     const s = state.settings;
-    const all = state.issues;
+    // Order: Open first, then Reopened, then the rest; newest first within each.
+    const RANK = { open: 0, reopened: 1, fixed: 2, 'partially-fixed': 3, unresolved: 4, closed: 5 };
+    const all = [...state.issues].sort((a, b) => (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9) || (a.createdAt < b.createdAt ? 1 : -1));
     const retest = all.filter((i) => K.RETEST.includes(i.status)).sort((a, b) => pageKey(a).localeCompare(pageKey(b)));
     const terms = (ui.q || '').toLowerCase().split(/\s+/).filter(Boolean);
     const matches = (i) => !terms.length || terms.every((w) => `${i.title} ${i.text || ''} ${i.route}`.toLowerCase().includes(w));
@@ -1349,7 +1351,7 @@
     let body;
     if (!all.length) body = '<div class="empty"><b>No issues yet</b><br>Click <b>Inspect</b>, pick an element and report what\'s wrong.</div>';
     else if (!shown.length)
-      body = `<div class="empty">${ui.view === 'retest' ? '<b>Nothing to retest</b><br>When the developer sends back issues.json, click <b>Import</b> — fixed issues show up here.' : terms.length ? `No issues match “${esc(ui.q)}”.` : 'Nothing here.'}</div>`;
+      body = `<div class="empty">${ui.view === 'retest' ? '<b>Nothing to retest</b><br>When the developer sends back issues.json, click <b>Import</b> — fixed issues show up here.' : terms.length ? `No issues match “${esc(ui.q)}”.` : ui.filter === 'open' ? '<b>No open issues</b><br>Everything is with the developer or closed.' : 'Nothing here.'}</div>`;
     else if (ui.view === 'retest') body = `<div class="rlist">${shown.map(retestCard).join('')}</div>`;
     else body = `<div class="irows">${shown.map(issueRow).join('')}</div>`;
 
@@ -1388,7 +1390,7 @@
       </div>
       <div class="pb">${body}</div>
       <div class="pf">
-        <button class="btn primary grow" data-act="export" title="Closed issues are not included">Export ZIP</button>
+        <button class="btn primary grow" data-act="export" title="Open and reopened issues in full; the rest listed by title only">Export ZIP</button>
         <label class="btn" title="Load the issues.json the developer sends back">Import<input type="file" accept=".json,application/json" hidden id="fImport"></label>
         <button class="ibtn" data-act="clear" title="Delete all issues">${ICON.trash}</button>
       </div>`;
@@ -1506,7 +1508,7 @@
           act.disabled = true;
           const r = await send('exportZip');
           toast(
-            `Exported ${r.count} issue${r.count === 1 ? '' : 's'} → ${r.folder}.zip${r.closedSkipped ? ` · ${r.closedSkipped} closed not included` : ''}${r.missing.length ? ' · missing images: ' + r.missing.length : ''}`,
+            `Exported ${r.count} open issue${r.count === 1 ? '' : 's'} → ${r.folder}.zip${r.listed ? ` · ${r.listed} other${r.listed === 1 ? '' : 's'} listed by title` : ''}${r.missing.length ? ' · missing images: ' + r.missing.length : ''}`,
             r.missing.length ? 'err' : '',
             6000
           );

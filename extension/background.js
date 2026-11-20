@@ -211,15 +211,15 @@ const handlers = {
   },
 
   async exportZip() {
-    // Closed issues are done — they stay in the extension but are not sent to developers again.
+    // Open + reopened issues are exported in full (screenshots, details). Everything else is only
+    // listed by title in the README, so the ZIP stays small and the developer focuses on what's open.
     const all = await K.db.getAllIssues();
-    const issues = all.filter((i) => K.normStatus(i.status) !== 'closed');
-    if (!issues.length) throw new Error(all.length ? 'All issues are closed — nothing to send.' : 'Nothing to export yet.');
+    if (!all.some(K.exporter.isActive)) throw new Error(all.length ? 'No open or reopened issues to send.' : 'Nothing to export yet.');
     const settings = await K.db.getSettings();
-    const { folder, files, missing } = await K.exporter.buildExportFiles(issues, settings, K.db.getBlob, { exportedAt: K.isoLocal() });
+    const { folder, files, missing, detailed, listed } = await K.exporter.buildExportFiles(all, settings, K.db.getBlob, { exportedAt: K.isoLocal() });
     const bytes = await K.makeZipBytes(files.map((f) => ({ name: `${folder}/${f.name}`, data: f.data })));
     await chrome.downloads.download({ url: 'data:application/zip;base64,' + b64(bytes), filename: folder + '.zip', saveAs: false });
-    return { folder, count: issues.length, closedSkipped: all.length - issues.length, missing };
+    return { folder, count: detailed, listed, missing };
   },
 };
 

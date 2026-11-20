@@ -54,7 +54,7 @@ full-resolution crop of the selected element (PNG) — usually 30–150 KB per i
 
 - **Issues** tab — one line per issue: severity dot, title (click to open), **↗** to go to the page
   where it was reported, and a status pill — click it to change the status right there.
-  Filter with **All / Open / With dev / Closed**, or type in **Search** (matches titles and
+  Shows **Open** issues by default (Open first, then Reopened); switch to **With dev / Closed / All** with the chips, or type in **Search** (matches titles and
   descriptions).
 - **↗** switches pages inside the KHDA app without reloading, so the list keeps its scroll position.
   Ctrl+click opens the page in a new tab instead.
@@ -67,7 +67,9 @@ Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (
 
 ### Export and retest
 
-- **Export ZIP** saves `KHDA-QA-<date>-<ENV>-<PREFIX>.zip` to Downloads. Closed issues are left out.
+- **Export ZIP** saves `KHDA-QA-<date>-<ENV>-<PREFIX>.zip` to Downloads. Only **open and reopened**
+  issues are exported in full (screenshots + details); fixed, partly fixed and closed ones are just
+  listed by title at the end of the README.
 - Developers unzip it into `qa/` and run `/khda-qa-fix` (see `../developer-kit`).
 - When they send back `issues.json`: **Import** → the Retest tab opens with what to check.
 

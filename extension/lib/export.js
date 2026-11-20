@@ -3,7 +3,7 @@
   'use strict';
   const X = {};
   X.SCHEMA_VERSION = '1.2';
-  X.TOOL_NAME = 'KHDA Visual QA Capture 1.3.0';
+  X.TOOL_NAME = 'KHDA Visual QA Capture 1.4.0';
 
   const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
 
@@ -96,7 +96,21 @@
     };
   };
 
-  X.buildIssuesJson = (ex, settings, exportedAt) => {
+  /** Only issues the developer still has to work on are exported in detail. */
+  X.isActive = (i) => ['open', 'reopened'].includes(K.normStatus(i.status));
+  /** One-line record for everything else (listed as text, no screenshots). */
+  X.toBrief = (i) => {
+    const r = i.resolution || {};
+    return {
+      id: i.id,
+      title: i.title || K.titleFrom(i.description, i.element),
+      status: K.normStatus(i.status),
+      page: (i.page && i.page.route) || '',
+      devNote: r.notes || r.verification || '',
+    };
+  };
+
+  X.buildIssuesJson = (ex, settings, exportedAt, briefs = []) => {
     const withUrl = ex.find((x) => x.page && x.page.url);
     let baseUrl = null;
     try {
@@ -108,6 +122,8 @@
       schemaVersion: X.SCHEMA_VERSION,
       export: { project: settings.projectName, environment: settings.environment, baseUrl, reporter: settings.reporter, exportedAt, tool: X.TOOL_NAME },
       issues: ex,
+      // Not part of this round (fixed / waiting for retest / closed): listed for context only.
+      otherIssues: briefs,
     };
   };
 
@@ -243,7 +259,7 @@
     return L.join('\n');
   };
 
-  X.buildReadme = (ex, settings, exportedAt) => {
+  X.buildReadme = (ex, settings, exportedAt, briefs = []) => {
     const sev = ['critical', 'high', 'medium', 'low']
       .map((s) => [ex.filter((x) => x.severity === s).length, K.severityLabel(s).toLowerCase()])
       .filter(([n]) => n)
@@ -259,7 +275,7 @@
       `| **Environment** | ${cell(settings.environment)} |`,
       `| **Reporter** | ${cell(settings.reporter)} |`,
       `| **Exported** | ${K.fmtLocal(exportedAt)} |`,
-      `| **Issues** | ${ex.length} issues, ${open} not yet fixed${sev ? ` (${sev})` : ''} |`,
+      `| **To fix** | ${ex.length} open issue${ex.length === 1 ? '' : 's'}${sev ? ` (${sev})` : ''}${briefs.length ? ` · ${briefs.length} other${briefs.length === 1 ? '' : 's'} listed at the end` : ''} |`,
       `| **Format** | KHDA Visual QA export v${X.SCHEMA_VERSION} — see \`issues.json\` |`,
       '',
       '## For Claude: how to process this report',
@@ -290,6 +306,17 @@
         L.push(`| [${x.id}](issues/${x.id}.md) | ${cell(x.title)} | ${cell(m)} | ${K.severityLabel(x.severity)} | ${x.status} |`);
       }
     });
+    if (briefs.length) {
+      L.push('', '## Other issues — for reference only (do not work on these)', '');
+      L.push("Already fixed, waiting for the tester's retest, or closed. No details or screenshots are included.", '');
+      for (const st of ['fixed', 'partially-fixed', 'unresolved', 'closed']) {
+        const bs = briefs.filter((b) => b.status === st);
+        if (!bs.length) continue;
+        L.push(`**${K.STATUS_LABEL[st]} (${bs.length})**`, '');
+        for (const b of bs) L.push(`- ${b.id} — ${String(b.title).replace(/\s+/g, ' ')}${b.page ? ` (${code(b.page)})` : ''}`);
+        L.push('');
+      }
+    }
     L.push('');
     return L.join('\n');
   };
@@ -302,7 +329,9 @@
     // (older issues were saved as PNG).
     const blobs = {};
     const withExt = [];
-    for (const i of X.sortIssues(issues)) {
+    const active = issues.filter(X.isActive);
+    const briefs = issues.filter((i) => !X.isActive(i)).map(X.toBrief).sort((a, b) => a.id.localeCompare(b.id));
+    for (const i of X.sortIssues(active)) {
       const ext = {};
       for (const kind of ['annotated', 'element']) {
         const b = await getBlob(`${i.id}:${kind}`);
@@ -313,8 +342,8 @@
     }
     const ex = withExt.map(X.toExportIssue);
     const files = [
-      { name: 'README.md', data: X.buildReadme(ex, settings, exportedAt) },
-      { name: 'issues.json', data: JSON.stringify(X.buildIssuesJson(ex, settings, exportedAt), null, 2) + '\n' },
+      { name: 'README.md', data: X.buildReadme(ex, settings, exportedAt, briefs) },
+      { name: 'issues.json', data: JSON.stringify(X.buildIssuesJson(ex, settings, exportedAt, briefs), null, 2) + '\n' },
     ];
     const missing = [];
     for (const x of ex) {
@@ -327,7 +356,7 @@
         else missing.push(path);
       }
     }
-    return { folder, files, missing };
+    return { folder, files, missing, detailed: ex.length, listed: briefs.length };
   };
 
   K.exporter = X;

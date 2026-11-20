@@ -16,7 +16,10 @@
 > - `resolution.problems[]` — per-point status written back by Claude.
 > - **Statuses (extension 1.3):** `open`, `reopened` (tester) → `fixed`, `partially-fixed`,
 >   `unresolved` (developer) → `closed` (tester confirmed) or `reopened`. `verified` from older
->   exports means `closed`. Closed issues are not included in exports.
+>   exports means `closed`.
+> - **Export scope (extension 1.4):** only `open` and `reopened` issues are exported in full
+>   (`issues[]`, `issues/<ID>.md`, screenshots). All others are listed in `otherIssues[]`
+>   (`{ id, title, status, page, devNote }`) and as a short text list at the end of `README.md`.
 > - Still written for older readers: `observed` (= description), `annotations[]`.
 >
 > Sections below describe v1.0; folder layout, fix scope, element data and resolution are unchanged
