@@ -58,6 +58,7 @@ const summary = (i) => {
   return {
     id: i.id,
     title: i.title || K.titleFrom(i.description, i.element),
+    text: String(i.description || '').slice(0, 600), // for search in the list
     severity: i.severity || 'medium',
     status: K.normStatus(i.status),
     scope: (i.scope && i.scope.level) || 'instance',

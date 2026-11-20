@@ -54,7 +54,10 @@ full-resolution crop of the selected element (PNG) — usually 30–150 KB per i
 
 - **Issues** tab — one line per issue: severity dot, title (click to open), **↗** to go to the page
   where it was reported, and a status pill — click it to change the status right there.
-  Filter with **All / Open / With dev / Closed**.
+  Filter with **All / Open / With dev / Closed**, or type in **Search** (matches titles and
+  descriptions).
+- **↗** switches pages inside the KHDA app without reloading, so the list keeps its scroll position.
+  Ctrl+click opens the page in a new tab instead.
 - **Retest** tab — issues the developer marked *Fixed*, *Partly fixed* or *Couldn't fix*, with the
   developer's note. Click **↗**, check the page, then **Close** or **Reopen**. Reopening asks what is
   still wrong; that note goes to the developer in the next export.

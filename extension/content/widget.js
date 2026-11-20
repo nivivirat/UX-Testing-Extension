@@ -1128,10 +1128,14 @@
     if (act) {
       const a = act.dataset.act;
       if (a === 'gopage') {
-        if (E.dirty && !confirm('Leave without saving your changes?')) return e.preventDefault();
+        if (e.ctrlKey || e.metaKey || e.shiftKey) return; // new tab
+        e.preventDefault();
+        if (E.dirty && !confirm('Leave without saving your changes?')) return;
+        const href = act.getAttribute('href');
         E.dirty = false;
-        saveUi(); // keep the issues panel open on the next page
-        return; // the link navigates
+        closeEditor();
+        navigateTo(href);
+        return;
       }
       if (a === 'save') saveEditor();
       else if (a === 'cancel') cancelEditor();
@@ -1226,14 +1230,47 @@
   const UI_KEY = 'kqa-ui'; // remembers open panel/view across page navigation (sessionStorage, no data)
   const ui = (() => {
     try {
-      return { view: 'all', filter: 'all', page: '', settings: false, ...JSON.parse(sessionStorage.getItem(UI_KEY) || '{}') };
+      return { view: 'all', filter: 'all', q: '', scroll: 0, settings: false, ...JSON.parse(sessionStorage.getItem(UI_KEY) || '{}') };
     } catch {
-      return { view: 'all', filter: 'all', page: '', settings: false };
+      return { view: 'all', filter: 'all', q: '', scroll: 0, settings: false };
     }
   })();
+  /**
+   * Go to the page where a bug was reported WITHOUT reloading when possible:
+   * same-origin SPA routes are opened through the app's own router (history.pushState + popstate,
+   * which React Router & co. listen to), so this panel, its scroll and the app state stay as they are.
+   * If the app does not react (not an SPA), fall back to a normal page load — the panel and scroll
+   * position are restored after it.
+   */
+  async function navigateTo(href) {
+    let u;
+    try {
+      u = new URL(href, location.href);
+    } catch {
+      return;
+    }
+    saveUi();
+    if (u.href === location.href) return toast('You are already on this page');
+    if (u.origin !== location.origin) return location.assign(u.href);
+    if (u.pathname === location.pathname && u.search === location.search && u.hash !== location.hash) {
+      location.hash = u.hash; // hash-based router
+      return;
+    }
+    let changed = false;
+    const mo = new MutationObserver(() => (changed = true));
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    history.pushState(null, '', u.href);
+    window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+    await sleep(700);
+    mo.disconnect();
+    if (!changed) location.assign(u.href); // the app has no client-side router for this — load normally
+  }
+
   const saveUi = () => {
     try {
-      sessionStorage.setItem(UI_KEY, JSON.stringify({ view: ui.view, filter: ui.filter, page: ui.page, open: !$('list').hidden }));
+      const pb = $('list').querySelector('.pb');
+      if (pb) ui.scroll = pb.scrollTop;
+      sessionStorage.setItem(UI_KEY, JSON.stringify({ view: ui.view, filter: ui.filter, q: ui.q, scroll: ui.scroll, open: !$('list').hidden }));
     } catch {
       /* storage blocked */
     }
@@ -1303,12 +1340,16 @@
     const s = state.settings;
     const all = state.issues;
     const retest = all.filter((i) => K.RETEST.includes(i.status)).sort((a, b) => pageKey(a).localeCompare(pageKey(b)));
-    const shown = ui.view === 'retest' ? retest : all.filter((FILTERS.find((f) => f[0] === ui.filter) || FILTERS[0])[2]);
+    const terms = (ui.q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = (i) => !terms.length || terms.every((w) => `${i.title} ${i.text || ''} ${i.route}`.toLowerCase().includes(w));
+    const shown = (ui.view === 'retest' ? retest : all.filter((FILTERS.find((f) => f[0] === ui.filter) || FILTERS[0])[2])).filter(matches);
+    const prevPb = p.querySelector('.pb');
+    const keepScroll = prevPb ? prevPb.scrollTop : ui.scroll || 0;
 
     let body;
     if (!all.length) body = '<div class="empty"><b>No issues yet</b><br>Click <b>Inspect</b>, pick an element and report what\'s wrong.</div>';
     else if (!shown.length)
-      body = `<div class="empty">${ui.view === 'retest' ? '<b>Nothing to retest</b><br>When the developer sends back issues.json, click <b>Import</b> — fixed issues show up here.' : 'Nothing here.'}</div>`;
+      body = `<div class="empty">${ui.view === 'retest' ? '<b>Nothing to retest</b><br>When the developer sends back issues.json, click <b>Import</b> — fixed issues show up here.' : terms.length ? `No issues match “${esc(ui.q)}”.` : 'Nothing here.'}</div>`;
     else if (ui.view === 'retest') body = `<div class="rlist">${shown.map(retestCard).join('')}</div>`;
     else body = `<div class="irows">${shown.map(issueRow).join('')}</div>`;
 
@@ -1336,6 +1377,7 @@
         </div>
       </div>
       <div class="lhead">
+        <div class="srch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input class="inp" id="fSearch" type="search" placeholder="Search issues" value="${esc(ui.q || '')}" autocomplete="off"></div>
         <div class="seg tabs">
           <button data-view="all" aria-pressed="${ui.view === 'all'}">Issues <span class="cnt">${all.length}</span></button>
           <button data-view="retest" aria-pressed="${ui.view === 'retest'}">Retest <span class="cnt${retest.length ? ' hot' : ''}">${retest.length}</span></button>
@@ -1350,7 +1392,13 @@
         <label class="btn" title="Load the issues.json the developer sends back">Import<input type="file" accept=".json,application/json" hidden id="fImport"></label>
         <button class="ibtn" data-act="clear" title="Delete all issues">${ICON.trash}</button>
       </div>`;
+    // Re-rendering (status change, search…) must not throw the user back to the top of the list.
+    const pb = p.querySelector('.pb');
+    pb.scrollTop = scrollResetPending ? 0 : keepScroll;
+    scrollResetPending = false;
+    pb.onscroll = () => (ui.scroll = pb.scrollTop);
   }
+  let scrollResetPending = false;
 
   /** Small in-page dialog asking why an issue is reopened. Resolves to the note, or null if cancelled. */
   function askReopenNote(issueTitle) {
@@ -1411,8 +1459,11 @@
 
   $('list').addEventListener('click', async (e) => {
     const t = e.target;
-    if (t.closest('a.go')) {
-      saveUi(); // the panel reopens on the same view after the page loads
+    const go = t.closest('a.go');
+    if (go) {
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return; // let the browser open a new tab
+      e.preventDefault();
+      navigateTo(go.getAttribute('href'));
       return;
     }
     const act = t.closest('[data-act]');
@@ -1422,14 +1473,15 @@
       const set = t.closest('[data-set]');
       if (view) {
         ui.view = view.dataset.view;
-        ui.page = '';
-        saveUi();
-        return renderList();
+        scrollResetPending = true;
+        renderList();
+        return saveUi();
       }
       if (filter) {
         ui.filter = filter.dataset.filter;
-        saveUi();
-        return renderList();
+        scrollResetPending = true;
+        renderList();
+        return saveUi();
       }
       if (set) {
         if (!(await setStatus(set.dataset.id, set.dataset.set))) return;
@@ -1488,6 +1540,18 @@
       toast(err.message, 'err', 6000);
       if (act) act.disabled = false;
     }
+  });
+
+  // Search: filter as you type, keep focus and caret in the box.
+  $('list').addEventListener('input', (e) => {
+    if (e.target.id !== 'fSearch') return;
+    ui.q = e.target.value;
+    scrollResetPending = true;
+    renderList();
+    const f = $('fSearch');
+    f.focus();
+    f.setSelectionRange(f.value.length, f.value.length);
+    saveUi();
   });
 
   $('list').addEventListener('change', async (e) => {

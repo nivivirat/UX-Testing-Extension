@@ -238,6 +238,12 @@ textarea.inp { height: auto; min-height: 60px; padding: 9px 12px; resize: vertic
 .errs { background: var(--red-soft); color: #C7262D; border-radius: 6px; padding: 8px 12px; font-size: 12.5px; }
 .errs ul { margin: 0; padding-left: 16px; }
 
+/* list search */
+.srch { position: relative; }
+.srch svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--gray7); pointer-events: none; }
+.srch .inp { height: 34px; padding-left: 32px; }
+.srch .inp::-webkit-search-cancel-button { cursor: pointer; }
+
 /* reopen-note dialog */
 .dback { position: fixed; inset: 0; background: rgba(0,0,0,.25); pointer-events: auto; }
 .dbox { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(440px, calc(100vw - 32px)); background: var(--bg);
