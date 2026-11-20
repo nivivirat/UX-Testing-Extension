@@ -52,12 +52,11 @@ full-resolution crop of the selected element (PNG) — usually 30–150 KB per i
 
 ### Issues panel (☰)
 
-- **Issues** tab — one line per issue: severity dot, title (click to open), ID, and the page link
-  (click to go to the page where it was reported). Click the status pill to change it.
-  Filter with **All / Open / With dev / Closed** and by page.
-- **Retest** tab — issues the developer marked *Fixed*, *Partly fixed* or *Couldn't fix*, grouped by
-  page with an **Open page** link and the developer's note. Check each one, then
-  **Looks good · Close** or **Still wrong · Reopen**.
+- **Issues** tab — one line per issue: severity dot, title (click to open), **↗** to go to the page
+  where it was reported, and a status pill — click it to change the status right there.
+  Filter with **All / Open / With dev / Closed**.
+- **Retest** tab — issues the developer marked *Fixed*, *Partly fixed* or *Couldn't fix*, with the
+  developer's note. Click **↗**, check the page, then **Close** or **Reopen**.
 
 Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (you) **Closed** or
 **Reopened**. Issues marked *verified* by older versions show as **Closed**.

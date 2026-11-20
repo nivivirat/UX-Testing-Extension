@@ -30,7 +30,7 @@
   // Lifecycle: open → (developer) fixed / partially-fixed / unresolved → (tester retest) closed or reopened.
   // "verified" (v1.0–1.2) means the same as "closed" and is read as closed; stored data is never rewritten.
   K.STATUSES = ['open', 'reopened', 'fixed', 'partially-fixed', 'unresolved', 'closed'];
-  K.STATUS_LABEL = { open: 'Open', reopened: 'Reopened', fixed: 'Fixed', 'partially-fixed': 'Partly fixed', unresolved: "Dev couldn't fix", closed: 'Closed' };
+  K.STATUS_LABEL = { open: 'Open', reopened: 'Reopened', fixed: 'Fixed', 'partially-fixed': 'Partly fixed', unresolved: "Couldn't fix", closed: 'Closed' };
   K.normStatus = (s) => (s === 'verified' ? 'closed' : K.STATUSES.includes(s) ? s : 'open');
   /** Statuses the tester has to look at again. */
   K.RETEST = ['fixed', 'partially-fixed', 'unresolved'];

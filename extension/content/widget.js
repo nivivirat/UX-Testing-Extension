@@ -1237,37 +1237,44 @@
   ];
   const pageKey = (i) => i.route || '/';
   const ICON = {
-    edit: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
     trash: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
-    ext: '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M8 7h9v9"/></svg>',
+    go: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M8 7h9v9"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+    check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
+    undo: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></svg>',
   };
-  const pageLink = (i, label) =>
-    i.url ? `<a class="plink" href="${esc(i.url)}" title="Open ${esc(i.url)}">${esc(label || pageKey(i))}${ICON.ext}</a>` : `<span>${esc(label || pageKey(i))}</span>`;
+  /** Icon-only link to the page where the issue was reported (opens in this tab; toolbar comes back). */
+  const goLink = (i) =>
+    i.url ? `<a class="go" href="${esc(i.url)}" title="Go to ${esc(pageKey(i))}" aria-label="Go to ${esc(pageKey(i))}">${ICON.go}</a>` : '<span></span>';
+  /** Status pill = a real <select> underneath, so changing status is one click + one pick. */
   const statusPill = (i) =>
-    `<label class="st st-${esc(i.status)}" title="Change status"><select data-status="${esc(i.id)}">${K.STATUSES.map(
+    `<label class="st st-${esc(i.status)}" title="Change status"><select data-status="${esc(i.id)}" aria-label="Status">${K.STATUSES.map(
       (x) => `<option value="${x}"${x === i.status ? ' selected' : ''}>${esc(K.STATUS_LABEL[x])}</option>`
-    ).join('')}</select>${esc(K.STATUS_LABEL[i.status])}</label>`;
+    ).join('')}</select>${esc(K.STATUS_LABEL[i.status])}${ICON.chev}</label>`;
 
   function issueRow(i) {
     return `<div class="irow" data-id="${esc(i.id)}">
-      <span class="sdot sd-${esc(i.severity)}" title="${esc(K.severityLabel(i.severity))}"></span>
-      <div class="im">
-        <button class="it" data-edit="${esc(i.id)}" title="Open issue">${esc(i.title)}</button>
-        <div class="iu"><span class="mono">${esc(i.id)}</span><span class="dotsep">·</span>${pageLink(i)}</div>
-      </div>
+      <span class="sdot sd-${esc(i.severity)}" title="${esc(K.severityLabel(i.severity))} severity"></span>
+      <button class="it" data-edit="${esc(i.id)}" title="Open — ${esc(i.title)}">${esc(i.title)}</button>
+      ${goLink(i)}
       ${statusPill(i)}
-      <div class="iact"><button class="ibtn" data-edit="${esc(i.id)}" title="Edit">${ICON.edit}</button><button class="ibtn" data-del="${esc(i.id)}" title="Delete">${ICON.trash}</button></div>
+      <button class="ibtn del" data-del="${esc(i.id)}" title="Delete">${ICON.trash}</button>
     </div>`;
   }
 
   function retestCard(i) {
     const dev = i.dev || {};
-    const label = K.STATUS_LABEL[i.status];
     return `<div class="rcard" data-id="${esc(i.id)}">
-      <div class="rt"><span class="sdot sd-${esc(i.severity)}"></span><button class="it" data-edit="${esc(i.id)}">${esc(i.title)}</button></div>
-      <div class="iu"><span class="mono">${esc(i.id)}</span><span class="dotsep">·</span><span class="st st-${esc(i.status)} ro">${esc(label)}</span>${i.reopenCount ? `<span class="dotsep">·</span><span>reopened ${i.reopenCount}×</span>` : ''}</div>
-      ${dev.note ? `<div class="dnote">${esc(dev.note)}</div>` : ''}
-      <div class="ract"><button class="btn sm" data-set="reopened" data-id="${esc(i.id)}">Still wrong · Reopen</button><button class="btn sm primary" data-set="closed" data-id="${esc(i.id)}">Looks good · Close</button></div>
+      <div class="rt">
+        <span class="sdot sd-${esc(i.severity)}" title="${esc(K.severityLabel(i.severity))} severity"></span>
+        <button class="it" data-edit="${esc(i.id)}" title="Open — ${esc(i.title)}">${esc(i.title)}</button>
+        ${goLink(i)}
+      </div>
+      <div class="dnote"><b>${esc(K.STATUS_LABEL[i.status])}</b>${dev.note ? ` — ${esc(dev.note)}` : ''}${i.reopenCount ? ` <span class="muted">· reopened ${i.reopenCount}×</span>` : ''}</div>
+      <div class="ract">
+        <button class="btn sm" data-set="reopened" data-id="${esc(i.id)}">${ICON.undo} Reopen</button>
+        <button class="btn sm primary" data-set="closed" data-id="${esc(i.id)}">${ICON.check} Close</button>
+      </div>
     </div>`;
   }
 
@@ -1275,27 +1282,15 @@
     const p = $('list');
     const s = state.settings;
     const all = state.issues;
-    const retest = all.filter((i) => K.RETEST.includes(i.status));
-    const pool = ui.view === 'retest' ? retest : all.filter((FILTERS.find((f) => f[0] === ui.filter) || FILTERS[0])[2]);
-    const pages = [...new Set(pool.map(pageKey))].sort();
-    if (ui.page && !pages.includes(ui.page)) ui.page = '';
-    const shown = pool.filter((i) => !ui.page || pageKey(i) === ui.page);
+    const retest = all.filter((i) => K.RETEST.includes(i.status)).sort((a, b) => pageKey(a).localeCompare(pageKey(b)));
+    const shown = ui.view === 'retest' ? retest : all.filter((FILTERS.find((f) => f[0] === ui.filter) || FILTERS[0])[2]);
 
     let body;
-    if (!all.length) body = '<div class="empty"><b>No issues yet</b><br>Click <b>Inspect</b>, select an element and report what\'s wrong.</div>';
+    if (!all.length) body = '<div class="empty"><b>No issues yet</b><br>Click <b>Inspect</b>, pick an element and report what\'s wrong.</div>';
     else if (!shown.length)
-      body = `<div class="empty">${ui.view === 'retest' ? '<b>Nothing to retest</b><br>Import the issues.json the developer sends back — fixed issues appear here.' : 'No issues match this filter.'}</div>`;
-    else if (ui.view === 'retest') {
-      const groups = {};
-      for (const i of shown) (groups[pageKey(i)] = groups[pageKey(i)] || []).push(i);
-      body = Object.keys(groups)
-        .sort()
-        .map((pg) => {
-          const g = groups[pg];
-          return `<div class="grp"><span class="mono">${esc(pg)}</span><span class="gcount">${g.length}</span><span class="sp"></span>${g[0].url ? pageLink(g[0], 'Open page') : ''}</div>${g.map(retestCard).join('')}`;
-        })
-        .join('');
-    } else body = `<div class="irows">${shown.map(issueRow).join('')}</div>`;
+      body = `<div class="empty">${ui.view === 'retest' ? '<b>Nothing to retest</b><br>When the developer sends back issues.json, click <b>Import</b> — fixed issues show up here.' : 'Nothing here.'}</div>`;
+    else if (ui.view === 'retest') body = `<div class="rlist">${shown.map(retestCard).join('')}</div>`;
+    else body = `<div class="irows">${shown.map(issueRow).join('')}</div>`;
 
     const counts = Object.fromEntries(FILTERS.map(([k, , fn]) => [k, all.filter(fn).length]));
     p.innerHTML = `
@@ -1326,8 +1321,7 @@
           <button data-view="retest" aria-pressed="${ui.view === 'retest'}">Retest <span class="cnt${retest.length ? ' hot' : ''}">${retest.length}</span></button>
         </div>
         <div class="filters">
-          ${ui.view === 'all' ? `<div class="chips">${FILTERS.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${ui.filter === k}">${l}<span>${counts[k]}</span></button>`).join('')}</div>` : '<div class="hint">The developer marked these done. Check each on its page.</div>'}
-          ${pages.length > 1 ? `<select class="psel" id="fPage" title="Filter by page"><option value="">All pages</option>${pages.map((pg) => `<option${pg === ui.page ? ' selected' : ''}>${esc(pg)}</option>`).join('')}</select>` : ''}
+          ${ui.view === 'all' ? `<div class="chips">${FILTERS.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${ui.filter === k}">${l}<span>${counts[k]}</span></button>`).join('')}</div>` : '<div class="hint">Open each page with ↗, check it, then Close or Reopen.</div>'}
         </div>
       </div>
       <div class="pb">${body}</div>
@@ -1345,7 +1339,7 @@
 
   $('list').addEventListener('click', async (e) => {
     const t = e.target;
-    if (t.closest('a.plink')) {
+    if (t.closest('a.go')) {
       saveUi(); // the panel reopens on the same view after the page loads
       return;
     }
@@ -1428,10 +1422,6 @@
     try {
       if (e.target.dataset.status) {
         await setStatus(e.target.dataset.status, e.target.value);
-      } else if (e.target.id === 'fPage') {
-        ui.page = e.target.value;
-        saveUi();
-        renderList();
       } else if (e.target.id === 'fRestore') {
         const file = e.target.files[0];
         if (!file) return;
