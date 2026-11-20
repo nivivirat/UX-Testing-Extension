@@ -985,6 +985,9 @@
           <span class="ttl">${E.isNew ? 'Report issue' : esc(i.id)}</span>
           <span class="muted">${what} · ${esc(i.page.route || '')}</span>
           <span class="sp"></span>
+          ${!E.isNew && i.page && (i.page.url || i.page.route) && (i.page.url || location.origin + i.page.route) !== location.href
+            ? `<a class="btn ghost" data-act="gopage" href="${esc(i.page.url || location.origin + i.page.route)}" title="Go to ${esc(i.page.route || '')}">↗ Open page</a>`
+            : ''}
           <button class="btn ghost" data-act="cancel">Cancel</button>
           <button class="btn primary" data-act="save" id="eSave">Save <kbd>Ctrl ↵</kbd></button>
         </div>
@@ -1123,6 +1126,12 @@
     const act = e.target.closest('[data-act]');
     if (act) {
       const a = act.dataset.act;
+      if (a === 'gopage') {
+        if (E.dirty && !confirm('Leave without saving your changes?')) return e.preventDefault();
+        E.dirty = false;
+        saveUi(); // keep the issues panel open on the next page
+        return; // the link navigates
+      }
       if (a === 'save') saveEditor();
       else if (a === 'cancel') cancelEditor();
       else if (a === 'undo') undo();
@@ -1236,6 +1245,12 @@
     ['closed', 'Closed', (i) => i.status === 'closed'],
   ];
   const pageKey = (i) => i.route || '/';
+  /** Where the bug was reported. Older saves may lack the full URL — rebuild it from the path. */
+  const pageUrl = (i) => {
+    if (i.url) return i.url;
+    if (!i.route) return '';
+    return i.route.startsWith('#') || location.hash.startsWith('#/') ? `${location.origin}${location.pathname}#${i.route.replace(/^#/, '')}` : location.origin + i.route;
+  };
   const ICON = {
     trash: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
     go: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M8 7h9v9"/></svg>',
@@ -1244,8 +1259,12 @@
     undo: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></svg>',
   };
   /** Icon-only link to the page where the issue was reported (opens in this tab; toolbar comes back). */
-  const goLink = (i) =>
-    i.url ? `<a class="go" href="${esc(i.url)}" title="Go to ${esc(pageKey(i))}" aria-label="Go to ${esc(pageKey(i))}">${ICON.go}</a>` : '<span></span>';
+  const goLink = (i) => {
+    const url = pageUrl(i);
+    return url
+      ? `<a class="go" href="${esc(url)}" title="Go to the page: ${esc(pageKey(i))}" aria-label="Go to the page ${esc(pageKey(i))}">${ICON.go}</a>`
+      : `<span class="go off" title="The page address was not recorded for this issue">${ICON.go}</span>`;
+  };
   /** Status pill = a real <select> underneath, so changing status is one click + one pick. */
   const statusPill = (i) =>
     `<label class="st st-${esc(i.status)}" title="Change status"><select data-status="${esc(i.id)}" aria-label="Status">${K.STATUSES.map(

@@ -152,8 +152,12 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .it { display: block; width: 100%; min-width: 0; text-align: left; font-weight: 500; font-size: 13px; line-height: 1.35; padding: 4px 0;
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
 .it:hover { color: var(--blue); }
-.go { width: 28px; height: 28px; border-radius: 6px; display: inline-grid; place-items: center; color: var(--gray9); text-decoration: none; transition: background .12s, color .12s; }
-.go:hover { background: var(--blue-soft); color: var(--blue); }
+.go { width: 28px; height: 28px; border-radius: 7px; display: inline-grid; place-items: center; color: var(--fg); background: var(--bg);
+  box-shadow: var(--shadow-sm); text-decoration: none; transition: background .12s, color .12s, box-shadow .12s; }
+.go:hover { background: var(--blue); color: #fff; box-shadow: none; }
+.go.off { color: var(--gray4); box-shadow: var(--ring); cursor: not-allowed; }
+.go.off:hover { background: var(--bg); color: var(--gray4); box-shadow: var(--ring); }
+a.btn { text-decoration: none; color: var(--fg); }
 .st { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px 0 10px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: filter .12s; }
 .st:hover { filter: brightness(.96); }
 .irow .st { justify-content: space-between; }
