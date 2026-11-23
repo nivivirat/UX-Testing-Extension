@@ -389,6 +389,34 @@
     };
   };
 
+  // ---------- round statistics ----------
+  /** Per-round numbers from the event log. Counts issues, so repeated clicks don't inflate them. */
+  K.roundStats = (rounds, events) =>
+    (rounds || []).map((r) => {
+      const ev = (events || []).filter((e) => e.round === r.n);
+      const ids = (type, pred = () => true) => new Set(ev.filter((e) => e.type === type && pred(e)).map((e) => e.id)).size;
+      const closed = ids('closed');
+      const reopened = ids('reopened');
+      const exp = ev.filter((e) => e.type === 'exported').pop();
+      return {
+        n: r.n,
+        startedAt: r.startedAt,
+        endedAt: r.endedAt || null,
+        inProgress: !r.endedAt,
+        backfilled: !!r.backfilled,
+        created: ids('created'),
+        fromDev: ids('devResult'),
+        devFixed: ids('devResult', (e) => e.to === 'fixed'),
+        devPartly: ids('devResult', (e) => e.to === 'partially-fixed'),
+        devCouldnt: ids('devResult', (e) => e.to === 'unresolved'),
+        closed,
+        reopened,
+        passRate: closed + reopened ? Math.round((closed / (closed + reopened)) * 100) : null,
+        sent: r.sent ?? (exp ? exp.count : null),
+        openAtEnd: r.openAtEnd ?? null,
+      };
+    });
+
   // ---------- misc ----------
 
   K.isoLocal = function (d = new Date()) {

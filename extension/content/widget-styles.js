@@ -267,6 +267,13 @@ textarea.inp { height: auto; min-height: 60px; padding: 9px 12px; resize: vertic
 .link:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 .link.danger { color: var(--red); }
 
+/* current round strip */
+.rstrip { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 16px; background: var(--bg2); border-bottom: 1px solid var(--gray2); font-size: 12px; color: var(--gray9); text-align: left; transition: background .12s; }
+.rstrip:hover { background: var(--gray1); }
+.rstrip .rn { font-weight: 600; color: var(--fg); }
+.rstrip .rs b { font: 600 12px var(--mono); color: var(--fg); margin-right: 2px; }
+.rstrip .more { margin-left: auto; color: var(--blue); font-weight: 500; white-space: nowrap; }
+
 /* retest card summary */
 button.dnote { display: block; width: 100%; text-align: left; cursor: pointer; transition: background .12s; }
 button.dnote:hover { background: var(--gray1); }

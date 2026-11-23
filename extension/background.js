@@ -92,6 +92,16 @@ async function shrinkForClaude(blob, maxEdge) {
   }
 }
 
+/** Numbers for the round in progress of the active project (shown in the toolbar). */
+async function currentRoundSummary() {
+  const pid = await K.db.getActiveProjectId();
+  const { rounds, events } = await K.db.getRounds(pid);
+  const all = K.roundStats(rounds, events);
+  const last = all[all.length - 1];
+  // After an export the next round has not started yet — show it as "Round N+1, not started".
+  return last && last.inProgress ? last : { n: (last ? last.n : 0) + 1, inProgress: true, notStarted: true, created: 0, closed: 0, reopened: 0, fromDev: 0 };
+}
+
 // ---------- message handlers ----------
 const handlers = {
   async state() {
@@ -101,7 +111,21 @@ const handlers = {
       projects: await K.db.getProjects(),
       activeProject: await K.db.getActiveProjectId(),
       issues: issues.map(summary),
+      round: await currentRoundSummary(),
     };
+  },
+
+  /** All rounds of a project with their numbers (for the Rounds page). */
+  async rounds({ projectId }) {
+    const pid = projectId || (await K.db.getActiveProjectId());
+    const { rounds, events } = await K.db.getRounds(pid);
+    return K.roundStats(rounds, events);
+  },
+
+  async finishRound({ projectId }) {
+    const pid = projectId || (await K.db.getActiveProjectId());
+    const open = (await K.db.getAllIssues()).filter((i) => K.db.projectOf(i) === pid && K.exporter.isActive(i)).length;
+    return K.db.finishRound(pid, { openAtEnd: open });
   },
 
   /** Open the settings page (projects / preferences / backup) in a tab. */
@@ -184,6 +208,7 @@ const handlers = {
       const project = (await K.db.getProjects()).find((p) => p.id === issue.projectId);
       issue.id = await K.db.nextId(settings, project);
       issue.createdAt = issue.createdAt || K.isoLocal();
+      await K.db.logEvent(issue.projectId, 'created', issue.id);
     }
     issue.updatedAt = K.isoLocal();
     if (raw) await K.db.putBlob(issue.id + ':raw', await dataUrlToBlob(raw));
@@ -217,6 +242,8 @@ const handlers = {
       issue.history = [...(issue.history || []), { ...(issue.resolution || {}), reopenedAt: K.isoLocal(), reopenNote: (note || '').trim() }];
       issue.resolution = null;
     }
+    if (status !== K.normStatus(issue.status))
+      await K.db.logEvent(K.db.projectOf(issue), status === 'closed' || status === 'reopened' ? status : 'status', id, { to: status });
     issue.status = status;
     issue.updatedAt = K.isoLocal();
     await K.db.putIssue(issue);
@@ -234,7 +261,11 @@ const handlers = {
         skipped.push(x.id);
         continue;
       }
-      if (x.status) issue.status = K.normStatus(x.status);
+      const to = x.status ? K.normStatus(x.status) : null;
+      // The developer's answer counts once per issue per round (re-importing the same file doesn't double it).
+      if (to && K.RETEST.includes(to) && (to !== K.normStatus(issue.status) || JSON.stringify(x.resolution || null) !== JSON.stringify(issue.resolution || null)))
+        await K.db.logEvent(K.db.projectOf(issue), 'devResult', issue.id, { to });
+      if (to) issue.status = to;
       if (x.resolution !== undefined) issue.resolution = x.resolution;
       if (Array.isArray(x.history)) issue.history = x.history;
       issue.updatedAt = K.isoLocal();
@@ -311,7 +342,10 @@ const handlers = {
     });
     const bytes = await K.makeZipBytes(files.map((f) => ({ name: `${folder}/${f.name}`, data: f.data })));
     await chrome.downloads.download({ url: 'data:application/zip;base64,' + b64(bytes), filename: folder + '.zip', saveAs: false });
-    return { folder, count: detailed, listed, missing };
+    // Sending the report to the developers ends this testing round; the next action starts a new one.
+    await K.db.logEvent(pid, 'exported', null, { count: detailed });
+    const round = await K.db.finishRound(pid, { sent: detailed, openAtEnd: detailed });
+    return { folder, count: detailed, listed, missing, round };
   },
 };
 

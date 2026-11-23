@@ -28,14 +28,16 @@
   // ---------- routing (#projects, #projects/new, #preferences, #backup) ----------
   function route() {
     const [section, sub] = (location.hash.replace('#', '') || 'projects').split('/');
-    const sec = ['projects', 'preferences', 'backup'].includes(section) ? section : 'projects';
-    for (const s of ['projects', 'preferences', 'backup']) $('s-' + s).hidden = s !== sec;
+    const SECTIONS = ['rounds', 'projects', 'preferences', 'backup'];
+    const sec = SECTIONS.includes(section) ? section : 'projects';
+    for (const s of SECTIONS) $('s-' + s).hidden = s !== sec;
     document.querySelectorAll('[data-nav]').forEach((a) => (a.dataset.nav === sec ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
     if (sec === 'projects') {
       renderProjects();
       if (sub === 'new') openForm(null);
     }
     if (sec === 'preferences') renderPrefs();
+    if (sec === 'rounds') renderRounds();
   }
   window.addEventListener('hashchange', route);
 
@@ -169,6 +171,76 @@
       renderProjects();
     }
   });
+
+  // ---------- rounds ----------
+  let roundsProject = null;
+  const day = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d) ? String(iso).slice(0, 10) : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  };
+  async function renderRounds() {
+    const ps = await db.getProjects();
+    if (!roundsProject || !ps.some((p) => p.id === roundsProject)) roundsProject = await db.getActiveProjectId();
+    $('roundProjects').innerHTML =
+      ps.length > 1 ? ps.map((p) => `<button class="pchip${p.id === roundsProject ? ' on' : ''}" data-rp="${esc(p.id)}">${esc(p.name)}</button>`).join('') : '';
+    const { rounds, events } = await db.getRounds(roundsProject);
+    const stats = K.roundStats(rounds, events);
+    const cur = stats[stats.length - 1];
+    const live = cur && cur.inProgress;
+    $('finishRound').hidden = !live;
+
+    // Current round as stat tiles: numbers in ink; status words always written, colour only as a dot.
+    const tile = (label, value, sub = '', dot = '') =>
+      `<div class="tile"><div class="tl">${dot ? `<span class="tdot" style="background:${dot}"></span>` : ''}${label}</div><div class="tv">${value}</div>${sub ? `<div class="ts">${sub}</div>` : ''}</div>`;
+    if (cur) {
+      const head = live ? `Round ${cur.n} — in progress` : `Round ${cur.n} — finished ${day(cur.endedAt)}`;
+      $('roundCurrent').innerHTML = `
+        <div class="rhead"><b>${head}</b><span class="muted">started ${day(cur.startedAt)}${cur.backfilled ? ' · includes testing from before rounds were tracked' : ''}</span></div>
+        <div class="tiles">
+          ${tile('New issues', cur.created)}
+          ${tile('From developer', cur.fromDev, cur.fromDev ? `${cur.devFixed} fixed · ${cur.devPartly} partly · ${cur.devCouldnt} couldn't` : '')}
+          ${tile('Closed', cur.closed, 'passed retest', '#107D32')}
+          ${tile('Reopened', cur.reopened, 'failed retest', '#E5484D')}
+          ${tile('Pass rate', cur.passRate == null ? '—' : cur.passRate + '%', cur.passRate == null ? 'nothing retested yet' : `${cur.closed} of ${cur.closed + cur.reopened} retested`)}
+        </div>`;
+    } else $('roundCurrent').innerHTML = '';
+
+    // Every round, newest first.
+    const rows = [...stats].reverse();
+    $('roundTable').innerHTML = rows.length
+      ? `<table class="rtable">
+          <thead><tr><th>Round</th><th>Dates</th><th class="num">New</th><th class="num">From dev</th><th class="num">Closed</th><th class="num">Reopened</th><th class="num">Pass rate</th><th class="num">Sent to dev</th></tr></thead>
+          <tbody>${rows
+            .map(
+              (r) => `<tr>
+                <td><b>Round ${r.n}</b>${r.inProgress ? ' <span class="badge">In progress</span>' : ''}</td>
+                <td class="muted">${day(r.startedAt)} – ${r.endedAt ? day(r.endedAt) : 'now'}</td>
+                <td class="num">${r.created}</td>
+                <td class="num">${r.fromDev}</td>
+                <td class="num">${r.closed}</td>
+                <td class="num">${r.reopened}</td>
+                <td class="num">${r.passRate == null ? '—' : r.passRate + '%'}</td>
+                <td class="num">${r.sent == null ? '—' : r.sent}</td>
+              </tr>`
+            )
+            .join('')}</tbody>
+        </table>`
+      : '<div class="empty">No rounds yet.</div>';
+  }
+  $('roundProjects').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-rp]');
+    if (!b) return;
+    roundsProject = b.dataset.rp;
+    renderRounds();
+  });
+  $('finishRound').onclick = async () => {
+    if (!confirm('Finish this round now? The next thing you do (report, retest, import) starts a new round. Exporting also finishes a round.')) return;
+    const open = (await db.getAllIssues()).filter((i) => db.projectOf(i) === roundsProject && ['open', 'reopened'].includes(K.normStatus(i.status))).length;
+    const n = await db.finishRound(roundsProject, { openAtEnd: open });
+    toast(`Round ${n} finished`);
+    renderRounds();
+  };
 
   // ---------- preferences (autosave) ----------
   async function renderPrefs() {

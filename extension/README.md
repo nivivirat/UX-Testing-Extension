@@ -68,6 +68,15 @@ full-resolution crop of the selected element (PNG) — usually 30–150 KB per i
 Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (you) **Closed** or
 **Reopened**. Issues marked *verified* by older versions show as **Closed**.
 
+### Testing rounds
+
+A round is one cycle: **Import** the developer's results → retest → test the whole app → **Export**.
+Exporting ends the round; the next thing you do starts the next one. The strip at the top of the
+issues panel shows the round in progress (new · closed · reopened). **All rounds ›** opens the
+Rounds page: tiles for the current round (new issues, from developer, closed, reopened, pass rate)
+and a table of every round, including how many issues were sent to the developer. Testing done
+before rounds existed is counted in Round 1.
+
 ### Export and retest
 
 - **Export ZIP** saves `<PROJECT>-QA-<date>-<ENV>-<INITIALS>.zip` to Downloads for the current project.

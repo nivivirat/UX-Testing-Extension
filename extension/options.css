@@ -97,3 +97,28 @@ h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 16
   .shead { flex-direction: column; }
   .row { flex-direction: column; align-items: flex-start; }
 }
+
+/* rounds */
+.pchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.pchips:empty { display: none; }
+.pchip { height: 30px; padding: 0 12px; border-radius: 999px; box-shadow: var(--shadow-sm); background: var(--bg); font-size: 13px; font-weight: 500; color: var(--gray9); }
+.pchip:hover { color: var(--fg); }
+.pchip.on { background: var(--fg); color: #fff; box-shadow: none; }
+.rhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 12px; }
+.rhead b { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.rhead .muted { font-size: 13px; }
+.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.tile { background: var(--bg); border-radius: 12px; box-shadow: var(--shadow-sm); padding: 16px; display: grid; gap: 4px; align-content: start; }
+.tl { font-size: 13px; color: var(--gray9); display: flex; align-items: center; gap: 6px; }
+.tdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.tv { font-size: 28px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.ts { font-size: 12px; color: var(--gray9); }
+.rtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rtable th { text-align: left; font-weight: 500; color: var(--gray9); padding: 11px 12px; border-bottom: 1px solid var(--gray2); background: var(--bg2); white-space: nowrap; }
+.rtable td { padding: 11px 12px; border-bottom: 1px solid var(--gray2); white-space: nowrap; }
+.rtable tr:last-child td { border-bottom: 0; }
+.rtable tbody tr:hover td { background: var(--bg2); }
+.rtable .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12.5px; }
+.rtable th.num { font-family: var(--sans); font-size: 13px; }
+#roundTable { overflow-x: auto; }
+@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

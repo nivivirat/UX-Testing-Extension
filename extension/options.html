@@ -17,12 +17,27 @@
 
   <div class="wrap layout">
     <nav class="side" aria-label="Settings sections">
+      <a href="#rounds" data-nav="rounds">Rounds</a>
       <a href="#projects" data-nav="projects">Projects</a>
       <a href="#preferences" data-nav="preferences">Preferences</a>
       <a href="#backup" data-nav="backup">Backup</a>
     </nav>
 
     <main>
+      <!-- Rounds -->
+      <section id="s-rounds" hidden>
+        <div class="shead">
+          <div>
+            <h1>Testing rounds</h1>
+            <p class="muted">A round is one cycle: import the developer's results, retest, test the app, then export. Exporting ends the round.</p>
+          </div>
+          <button class="btn" id="finishRound">Finish round now</button>
+        </div>
+        <div class="pchips" id="roundProjects"></div>
+        <div id="roundCurrent"></div>
+        <div class="card" id="roundTable"></div>
+      </section>
+
       <!-- Projects -->
       <section id="s-projects" hidden>
         <div class="shead">

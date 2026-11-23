@@ -82,6 +82,56 @@
     return ps.some((p) => p.id === a) ? a : ps[0].id;
   };
 
+  // ---------- testing rounds ----------
+  // A round = import developer results → retest → test the app → export. Export ends the round.
+  // rounds:<pid> = [{ n, startedAt, endedAt?, sent?, openAtEnd?, backfilled? }]
+  // events:<pid> = [{ type: 'created'|'closed'|'reopened'|'status'|'devResult'|'exported', id, at, round, to? }]
+  db.ensureRounds = async (pid) => {
+    let rounds = await db.getMeta('rounds:' + pid);
+    if (Array.isArray(rounds) && rounds.length) return rounds;
+    // First time: put everything that already happened into Round 1 (kept open until the next export).
+    const issues = (await db.getAllIssues()).filter((i) => db.projectOf(i) === pid);
+    const ev = [];
+    for (const i of issues) {
+      if (i.createdAt) ev.push({ type: 'created', id: i.id, at: i.createdAt, round: 1 });
+      for (const h of i.history || []) if (h && h.reopenedAt) ev.push({ type: 'reopened', id: i.id, at: h.reopenedAt, round: 1 });
+      if (i.resolution) ev.push({ type: 'devResult', id: i.id, at: i.resolution.resolvedAt || i.resolution.fixedAt || i.updatedAt || '', to: i.resolution.status || 'fixed', round: 1 });
+      if (K.normStatus(i.status) === 'closed') ev.push({ type: 'closed', id: i.id, at: i.updatedAt || i.createdAt || '', round: 1 });
+    }
+    ev.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    const first = ev.find((e) => e.at);
+    rounds = [{ n: 1, startedAt: (first && first.at) || K.isoLocal(), backfilled: ev.length > 0 }];
+    await db.setMeta('rounds:' + pid, rounds);
+    await db.setMeta('events:' + pid, ev);
+    return rounds;
+  };
+  /** The round in progress (starts a new one if the last was finished). */
+  db.currentRound = async (pid) => {
+    const rounds = await db.ensureRounds(pid);
+    let cur = rounds[rounds.length - 1];
+    if (cur.endedAt) {
+      cur = { n: cur.n + 1, startedAt: K.isoLocal() };
+      rounds.push(cur);
+      await db.setMeta('rounds:' + pid, rounds);
+    }
+    return cur;
+  };
+  db.logEvent = async (pid, type, id, extra = {}) => {
+    const cur = await db.currentRound(pid);
+    const ev = (await db.getMeta('events:' + pid)) || [];
+    ev.push({ type, id, at: K.isoLocal(), round: cur.n, ...extra });
+    await db.setMeta('events:' + pid, ev);
+  };
+  /** Finish the round in progress (called by Export, or by hand). */
+  db.finishRound = async (pid, extra = {}) => {
+    const cur = await db.currentRound(pid);
+    const rounds = await db.getMeta('rounds:' + pid);
+    Object.assign(rounds[rounds.length - 1], { endedAt: K.isoLocal(), ...extra });
+    await db.setMeta('rounds:' + pid, rounds);
+    return cur.n;
+  };
+  db.getRounds = async (pid) => ({ rounds: await db.ensureRounds(pid), events: (await db.getMeta('events:' + pid)) || [] });
+
   /** IDs are <PROJECT CODE>-<REPORTER>-<NNN>. The counter never resets, so IDs are never reused. */
   db.nextId = async (settings, project) => {
     const prefix = `${(project && project.code) || settings.projectCode}-${settings.reporter}`;

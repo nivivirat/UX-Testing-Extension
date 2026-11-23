@@ -1461,6 +1461,18 @@
       </div>`;
   }
 
+  /** Current testing round in one line; opens the Rounds page. */
+  function roundStrip() {
+    const r = state.round;
+    if (!r) return '';
+    const stat = (n, label) => `<span class="rs"><b>${n}</b> ${label}</span>`;
+    return `<button class="rstrip" data-act="rounds" title="See every round">
+      <span class="rn">Round ${r.n}</span>
+      ${r.notStarted ? '<span class="rs muted">starts with your next action</span>' : stat(r.created, 'new') + stat(r.closed, 'closed') + stat(r.reopened, 'reopened')}
+      <span class="more">All rounds ›</span>
+    </button>`;
+  }
+
   /** Reopen note pre-filled with what is still open: unticked points + points the dev didn't fix. */
   function reopenPrefill(id) {
     const i = state.issues.find((x) => x.id === id);
@@ -1506,7 +1518,7 @@
         <button class="ibtn" data-act="settings" title="Settings & projects">⚙</button>
         <button class="ibtn" data-act="closeList" title="Close">${IC.close}</button>
       </div>
-      ${detailIssue ? retestDetail(detailIssue) : `<div class="lhead">
+      ${detailIssue ? retestDetail(detailIssue) : `${roundStrip()}<div class="lhead">
         <div class="srch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input class="inp" id="fSearch" type="search" placeholder="Search issues" value="${esc(ui.q || '')}" autocomplete="off"></div>
         <div class="seg tabs">
           <button data-view="all" aria-pressed="${ui.view === 'all'}">Issues <span class="cnt" title="Open + reopened">${counts.open}</span></button>
@@ -1774,6 +1786,7 @@
       if (act) {
         const a = act.dataset.act;
         if (a === 'closeList') toggleList(false);
+        else if (a === 'rounds') await send('openSettings', { section: 'rounds' });
         else if (a === 'back') {
           ui.detail = null;
           renderList();
@@ -1784,7 +1797,7 @@
           act.disabled = true;
           const r = await send('exportZip', { projectId: state.activeProject });
           toast(
-            `Exported ${r.count} open issue${r.count === 1 ? '' : 's'} → ${r.folder}.zip${r.listed ? ` · ${r.listed} other${r.listed === 1 ? '' : 's'} listed by title` : ''}${r.missing.length ? ' · missing images: ' + r.missing.length : ''}`,
+            `Round ${r.round} finished · exported ${r.count} open issue${r.count === 1 ? '' : 's'} → ${r.folder}.zip${r.listed ? ` · ${r.listed} other${r.listed === 1 ? '' : 's'} listed by title` : ''}${r.missing.length ? ' · missing images: ' + r.missing.length : ''}`,
             r.missing.length ? 'err' : '',
             6000
           );
