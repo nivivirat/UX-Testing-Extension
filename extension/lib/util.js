@@ -296,6 +296,99 @@
     return out;
   };
 
+  // ---------- developer resolution → something a tester can use ----------
+  /**
+   * Turns the developer's `resolution` (written by Claude) into:
+   *   points: [{ label, detail, state: 'fixed'|'not'|'partial'|'unknown' }]  — the retest checklist
+   *   pages:  ['/projects/pmo/approvals', …]                                — where to check
+   *   cause, files[], tokens, verification, notes, level, at
+   * Forgiving: point strings come in many shapes ("X (details): fixed", "X: fixed - details",
+   * "X: not fixed — why", or no status at all).
+   */
+  K.parseResolution = (r) => {
+    if (!r || typeof r !== 'object') return null;
+    const asText = (v) => (Array.isArray(v) ? v.join(', ') : v == null ? '' : String(v));
+    const raw = Array.isArray(r.points)
+      ? r.points
+      : Array.isArray(r.problems)
+        ? r.problems.map((p) => (typeof p === 'string' ? p : `${p.point || ''}: ${p.status || ''}${p.note ? ' — ' + p.note : ''}`))
+        : [];
+    const STATE = /:\s*(not fixed|partially fixed|partly fixed|unresolved|skipped|fixed)\b/gi;
+    const points = raw.map((line) => {
+      const s = String(line).trim();
+      let m;
+      let last = null;
+      STATE.lastIndex = 0;
+      while ((m = STATE.exec(s))) last = m;
+      let body = s;
+      let after = '';
+      let state = 'unknown';
+      if (last) {
+        body = s.slice(0, last.index);
+        after = s.slice(last.index + last[0].length).replace(/^\s*[—–,;-]?\s*/, '').trim();
+        const w = last[1].toLowerCase();
+        state = w === 'fixed' ? 'fixed' : /not|unresolved|skipped/.test(w) ? 'not' : 'partial';
+      }
+      body = body.trim().replace(/[:\s]+$/, '');
+      // "Not fixed: X" / "Fixed — X" written at the start instead of the end
+      const lead = body.match(/^(not fixed|partially fixed|partly fixed|fixed)\s*[:—–-]\s*/i);
+      if (lead && state === 'unknown') {
+        const w = lead[1].toLowerCase();
+        state = w === 'fixed' ? 'fixed' : w === 'not fixed' ? 'not' : 'partial';
+        body = body.slice(lead[0].length);
+      }
+      let label = body;
+      let detail = '';
+      // Split "Label (details…)" only when the bracket closes at the very end of the line.
+      let k = -1;
+      if (body.endsWith(')')) {
+        let depth = 0;
+        for (let i = body.length - 1; i >= 0; i--) {
+          if (body[i] === ')') depth++;
+          else if (body[i] === '(' && --depth === 0) {
+            k = i;
+            break;
+          }
+        }
+      }
+      if (k > 6 && body[k - 1] === ' ') {
+        label = body.slice(0, k - 1);
+        detail = body.slice(k + 1, -1);
+      }
+      if (label.length > 110) {
+        const full = label;
+        const cut = full.slice(0, 100).lastIndexOf(' ');
+        label = full.slice(0, cut > 40 ? cut : 100) + '…';
+        detail = detail ? `${full} — ${detail}` : full;
+      }
+      if (after) detail = detail ? `${detail} — ${after}` : after;
+      if (state === 'unknown' && /^(fixed|partially-fixed)$/.test(r.status || '')) state = r.status === 'fixed' ? 'fixed' : 'unknown';
+      return { label: label || s.slice(0, 100), detail, state };
+    });
+    // Page paths mentioned in the "affected" / "verification" text (not file paths).
+    const hay = `${asText(r.affected || r.affectedUsages)} ${asText(r.verification)}`;
+    const pages = [...new Set(hay.match(/(?<![\w./-])\/[a-z][a-z0-9_-]*(?:\/[a-z0-9_:-]+)*/gi) || [])].filter(
+      (p) => !/\.(tsx?|jsx?|css|json|woff2?|png|svg|md)$/i.test(p) && !/^\/(fonts|public|src|node_modules|api)\b/i.test(p)
+    );
+    const files = asText(r.filesChanged)
+      .split(/,\s+(?![^()]*\))/)
+      .map((f) => f.trim())
+      .filter(Boolean);
+    return {
+      status: r.status || '',
+      level: r.fixedAtLevel || '',
+      at: r.resolvedAt || r.fixedAt || '',
+      cause: r.rootCause || '',
+      affected: asText(r.affected || r.affectedUsages),
+      points,
+      pages: pages.slice(0, 10),
+      files,
+      tokens: asText(r.tokensUsed),
+      verification: asText(r.verification),
+      notes: asText(r.notes),
+    };
+  };
+
   // ---------- misc ----------
 
   K.isoLocal = function (d = new Date()) {

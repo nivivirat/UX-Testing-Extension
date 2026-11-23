@@ -58,8 +58,11 @@ full-resolution crop of the selected element (PNG) — usually 30–150 KB per i
   descriptions).
 - **↗** switches pages inside the KHDA app without reloading, so the list keeps its scroll position.
   Ctrl+click opens the page in a new tab instead.
-- **Retest** tab — issues the developer marked *Fixed*, *Partly fixed* or *Couldn't fix*, with the
-  developer's note. Click **↗**, check the page, then **Close** or **Reopen**. Reopening asks what is
+- **Retest** tab — issues the developer marked *Fixed*, *Partly fixed* or *Couldn't fix*, each with a
+  one-line summary ("2 of 3 fixed · 4 pages to check · not fixed: …"). Click one to open the
+  **retest view**: a checklist of what the developer fixed (tick each as you verify it; points they
+  did *not* fix are highlighted), the pages to check (one click, no reload), and the developer's
+  technical notes folded away. Click **↗**, check the page, then **Close** or **Reopen**. Reopening asks what is
   still wrong; that note goes to the developer in the next export.
 
 Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (you) **Closed** or

@@ -267,6 +267,52 @@ textarea.inp { height: auto; min-height: 60px; padding: 9px 12px; resize: vertic
 .link:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 .link.danger { color: var(--red); }
 
+/* retest card summary */
+button.dnote { display: block; width: 100%; text-align: left; cursor: pointer; transition: background .12s; }
+button.dnote:hover { background: var(--gray1); }
+.dnote .warn { color: var(--amber); }
+.dnote .more { float: right; color: var(--blue); font-weight: 500; margin-left: 8px; }
+
+/* retest detail view */
+.dhead { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--gray2); }
+.dhead .sp { flex: 1; }
+.dbody { padding: 14px 16px 16px; display: grid; gap: 16px; align-content: start; }
+.dtitle { font-weight: 600; font-size: 15px; line-height: 1.35; letter-spacing: -0.01em; }
+.dmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--gray9); font-size: 12px; margin-top: -8px; }
+.dmeta .st { cursor: default; height: 22px; }
+.dsec { display: grid; gap: 6px; }
+.dst { font-size: 12px; font-weight: 600; color: var(--fg); }
+.dst .muted { font: 500 11.5px var(--mono); margin-left: 4px; }
+.ck { display: grid; grid-template-columns: 18px minmax(0,1fr) auto; gap: 10px; align-items: start; padding: 9px 10px; border-radius: 8px; box-shadow: var(--ring); cursor: pointer; transition: background .12s; }
+.ck:hover { background: var(--bg2); }
+.ck input { position: absolute; opacity: 0; pointer-events: none; }
+.cbox { width: 18px; height: 18px; border-radius: 5px; box-shadow: inset 0 0 0 1.5px var(--gray4); display: grid; place-items: center; color: transparent; margin-top: 1px; transition: background .12s; }
+.ck input:checked + .cbox { background: var(--fg); box-shadow: none; color: #fff; }
+.ck input:focus-visible + .cbox { outline: 2px solid var(--blue); outline-offset: 2px; }
+.ck input:checked ~ .ctext .cl { color: var(--gray9); text-decoration: line-through; text-decoration-color: var(--gray4); }
+.ctext { display: grid; gap: 2px; min-width: 0; }
+.cl { font-weight: 500; font-size: 13px; line-height: 1.4; }
+.cd { font-size: 12px; color: var(--gray9); line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.ck:hover .cd { -webkit-line-clamp: unset; }
+.ck.not, .ck.partial { background: var(--amber-soft); box-shadow: 0 0 0 1px #F7D9A8; cursor: default; }
+.ck.partial { cursor: pointer; }
+.ck.not .cbox { box-shadow: inset 0 0 0 1.5px #E8B46C; background: transparent; }
+.ptag { font-size: 11px; font-weight: 600; color: var(--amber); white-space: nowrap; margin-top: 1px; }
+.pchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pchip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border-radius: 999px; background: var(--bg); box-shadow: var(--shadow-sm);
+  font: 12px var(--mono); color: var(--fg); text-decoration: none; transition: background .12s, color .12s; }
+.pchip:hover { background: var(--blue); color: #fff; box-shadow: none; }
+.pchip.off { color: var(--gray7); box-shadow: var(--ring); background: var(--bg2); cursor: default; }
+.pchip svg { width: 12px; height: 12px; }
+details.dtech { border-radius: 8px; box-shadow: var(--ring); padding: 0 12px; }
+details.dtech summary { cursor: pointer; height: 38px; display: flex; align-items: center; font-size: 12.5px; font-weight: 500; color: var(--gray9); list-style: none; }
+details.dtech summary::before { content: '›'; display: inline-block; width: 14px; transition: transform .12s; }
+details.dtech[open] summary::before { transform: rotate(90deg); }
+details.dtech .tr { display: grid; gap: 2px; padding: 8px 0; border-top: 1px solid var(--gray1); }
+details.dtech .tk { font-size: 11px; font-weight: 600; color: var(--gray9); text-transform: uppercase; letter-spacing: .04em; }
+details.dtech .tv { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+details.dtech code { font-size: 11px; }
+
 /* list search */
 .srch { position: relative; }
 .srch svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--gray7); pointer-events: none; }

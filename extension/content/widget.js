@@ -1264,9 +1264,9 @@
   const UI_KEY = 'kqa-ui-v2'; // remembers open panel/view across page navigation (sessionStorage, no data)
   const ui = (() => {
     try {
-      return { view: 'all', filter: 'open', q: '', scroll: 0, settings: false, ...JSON.parse(sessionStorage.getItem(UI_KEY) || '{}') };
+      return { view: 'all', filter: 'open', q: '', scroll: 0, detail: null, settings: false, ...JSON.parse(sessionStorage.getItem(UI_KEY) || '{}') };
     } catch {
-      return { view: 'all', filter: 'open', q: '', scroll: 0, settings: false };
+      return { view: 'all', filter: 'open', q: '', scroll: 0, detail: null, settings: false };
     }
   })();
   /**
@@ -1304,7 +1304,7 @@
     try {
       const pb = $('list').querySelector('.pb');
       if (pb) ui.scroll = pb.scrollTop;
-      sessionStorage.setItem(UI_KEY, JSON.stringify({ view: ui.view, filter: ui.filter, q: ui.q, scroll: ui.scroll, open: !$('list').hidden }));
+      sessionStorage.setItem(UI_KEY, JSON.stringify({ view: ui.view, filter: ui.filter, q: ui.q, scroll: ui.scroll, detail: ui.detail, open: !$('list').hidden }));
     } catch {
       /* storage blocked */
     }
@@ -1325,6 +1325,7 @@
   };
   const ICON = {
     trash: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+    back: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
     edit: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
     go: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M8 7h9v9"/></svg>',
     chev: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
@@ -1345,22 +1346,54 @@
   function issueRow(i) {
     return `<div class="irow" data-id="${esc(i.id)}">
       <span class="sdot sd-${esc(i.severity)}" title="${esc(K.severityLabel(i.severity))} severity"></span>
-      <button class="it" data-edit="${esc(i.id)}" title="Open — ${esc(i.title)}">${esc(i.title)}</button>
+      <button class="it" ${i.resolution ? `data-detail="${esc(i.id)}" title="Review the developer's fix"` : `data-edit="${esc(i.id)}" title="Open — ${esc(i.title)}"`}>${esc(i.title)}</button>
       ${goLink(i)}
       ${statusPill(i)}
       <button class="ibtn del" data-del="${esc(i.id)}" title="Delete">${ICON.trash}</button>
     </div>`;
   }
 
+  // Ticks the tester makes while checking a fix (per issue, kept for this browser tab session).
+  const CHECKS_KEY = 'kqa-checks';
+  const getChecks = (id) => {
+    try {
+      return JSON.parse(sessionStorage.getItem(CHECKS_KEY) || '{}')[id] || [];
+    } catch {
+      return [];
+    }
+  };
+  const setChecks = (id, list) => {
+    try {
+      const all = JSON.parse(sessionStorage.getItem(CHECKS_KEY) || '{}');
+      all[id] = list;
+      sessionStorage.setItem(CHECKS_KEY, JSON.stringify(all));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  /** Short summary of the developer's result: "2 of 3 fixed · 4 pages". */
+  function devSummary(i) {
+    const r = K.parseResolution(i.resolution);
+    if (!r) return '';
+    const fixed = r.points.filter((x) => x.state === 'fixed').length;
+    const not = r.points.filter((x) => x.state === 'not' || x.state === 'partial');
+    const pages = r.pages.filter((x) => !x.includes(':')).length;
+    const parts = [];
+    if (r.points.length) parts.push(`${fixed} of ${r.points.length} fixed`);
+    if (pages) parts.push(`${pages} page${pages === 1 ? '' : 's'} to check`);
+    return `${parts.join(' · ')}${not.length ? ` <span class="warn">· not fixed: ${esc(not[0].label)}${not.length > 1 ? ` +${not.length - 1}` : ''}</span>` : ''}`;
+  }
+
   function retestCard(i) {
-    const dev = i.dev || {};
+    const sum = devSummary(i);
     return `<div class="rcard" data-id="${esc(i.id)}">
       <div class="rt">
         <span class="sdot sd-${esc(i.severity)}" title="${esc(K.severityLabel(i.severity))} severity"></span>
-        <button class="it" data-edit="${esc(i.id)}" title="Open — ${esc(i.title)}">${esc(i.title)}</button>
+        <button class="it" data-detail="${esc(i.id)}" title="Review the fix">${esc(i.title)}</button>
         ${goLink(i)}
       </div>
-      <div class="dnote"><b>${esc(K.STATUS_LABEL[i.status])}</b>${dev.note ? ` — ${esc(dev.note)}` : ''}${i.reopenCount ? ` <span class="muted">· reopened ${i.reopenCount}×</span>` : ''}</div>
+      <button class="dnote" data-detail="${esc(i.id)}"><b>${esc(K.STATUS_LABEL[i.status])}</b>${sum ? ` — ${sum}` : ''}${i.reopenCount ? ` <span class="muted">· reopened ${i.reopenCount}×</span>` : ''}<span class="more">Review ›</span></button>
       <div class="ract">
         <button class="btn sm" data-set="reopened" data-id="${esc(i.id)}">${ICON.undo} Reopen</button>
         <button class="btn sm primary" data-set="closed" data-id="${esc(i.id)}">${ICON.check} Close</button>
@@ -1368,9 +1401,81 @@
     </div>`;
   }
 
+  /** Full retest view for one issue: what to check, where, and the developer's notes (folded). */
+  function retestDetail(i) {
+    const r = K.parseResolution(i.resolution) || { points: [], pages: [], files: [] };
+    const checks = getChecks(i.id);
+    const checkable = r.points.map((x, n) => [x, n]).filter(([x]) => x.state !== 'not');
+    const done = checkable.filter(([, n]) => checks.includes(n)).length;
+    const ORIGIN = (() => {
+      try {
+        return new URL(i.url || location.href).origin;
+      } catch {
+        return location.origin;
+      }
+    })();
+    const pageChip = (route, label) =>
+      route.includes(':')
+        ? `<span class="pchip off" title="Template path — open any real item">${esc(route)}</span>`
+        : `<a class="pchip" href="${esc(ORIGIN + route)}" title="Go to ${esc(route)}">${esc(label || route)}${ICON.go}</a>`;
+    const own = i.route ? [i.route] : [];
+    const pages = [...new Set([...own, ...r.pages])];
+    const STATE = { fixed: '', partial: '<span class="ptag">Partly fixed</span>', not: '<span class="ptag">Not fixed</span>', unknown: '' };
+    const items = r.points.length
+      ? r.points
+          .map(
+            (x, n) => `<label class="ck ${x.state}">
+              <input type="checkbox" data-check="${n}" ${checks.includes(n) ? 'checked' : ''} ${x.state === 'not' ? 'disabled' : ''}>
+              <span class="cbox">${ICON.check}</span>
+              <span class="ctext"><span class="cl">${esc(x.label)}</span>${x.detail ? `<span class="cd">${esc(x.detail)}</span>` : ''}</span>
+              ${STATE[x.state] || ''}
+            </label>`
+          )
+          .join('')
+      : `<div class="hint">The developer did not list separate points.${r.affected ? ` Affected: ${esc(r.affected)}` : ''}</div>`;
+    const tech = [
+      r.cause && ['Cause', esc(r.cause)],
+      r.notes && ['Notes', esc(r.notes)],
+      r.files.length && ['Files changed', r.files.map((f) => `<code>${esc(f)}</code>`).join('<br>')],
+      r.tokens && r.tokens !== '—' && ['Tokens', esc(r.tokens)],
+      r.affected && ['Affected', esc(r.affected)],
+      r.verification && ['How they verified', esc(r.verification)],
+    ].filter(Boolean);
+    return `
+      <div class="dhead">
+        <button class="ibtn" data-act="back" title="Back to the list">${ICON.back}</button>
+        <span class="muted">Retest</span>
+        <span class="sp"></span>
+        <button class="btn sm ghost" data-edit="${esc(i.id)}">Open issue</button>
+      </div>
+      <div class="pb dbody">
+        <div class="dtitle">${esc(i.title)}</div>
+        <div class="dmeta"><span class="st st-${esc(i.status)}">${esc(K.STATUS_LABEL[i.status])}</span>${r.level ? `<span>fixed at ${esc(r.level)} level</span>` : ''}${r.at ? `<span>${esc(String(r.at).slice(0, 10))}</span>` : ''}${i.reopenCount ? `<span>reopened ${i.reopenCount}×</span>` : ''}</div>
+        <div class="dsec"><div class="dst">Check these${checkable.length ? ` <span class="muted">${done}/${checkable.length}</span>` : ''}</div>${items}</div>
+        ${pages.length ? `<div class="dsec"><div class="dst">Where to check</div><div class="pchips">${pages.map((pg, n) => pageChip(pg, n === 0 && own.length ? `${pg} · reported here` : pg)).join('')}</div></div>` : ''}
+        ${tech.length ? `<details class="dtech"><summary>Developer notes</summary>${tech.map(([k, v]) => `<div class="tr"><div class="tk">${k}</div><div class="tv">${v}</div></div>`).join('')}</details>` : ''}
+      </div>
+      <div class="pf">
+        <button class="btn" data-set="reopened" data-id="${esc(i.id)}">${ICON.undo} Reopen</button>
+        <button class="btn primary grow" data-set="closed" data-id="${esc(i.id)}">${ICON.check} Close${checkable.length ? ` · ${done}/${checkable.length} checked` : ''}</button>
+      </div>`;
+  }
+
+  /** Reopen note pre-filled with what is still open: unticked points + points the dev didn't fix. */
+  function reopenPrefill(id) {
+    const i = state.issues.find((x) => x.id === id);
+    const r = i && K.parseResolution(i.resolution);
+    if (!r || !r.points.length) return '';
+    const checks = getChecks(id);
+    const lines = r.points.filter((x, n) => x.state === 'not' || x.state === 'partial' || !checks.includes(n)).map((x) => `- ${x.label}${x.state === 'not' ? ' (not fixed by developer)' : ''}`);
+    return lines.length ? `Still wrong:\n${lines.join('\n')}\n` : '';
+  }
+
   function renderList() {
     const p = $('list');
     const s = state.settings;
+    const detailIssue = ui.detail && state.issues.find((x) => x.id === ui.detail);
+    if (ui.detail && !detailIssue) ui.detail = null;
     // Order: Open first, then Reopened, then the rest; newest first within each.
     const RANK = { open: 0, reopened: 1, fixed: 2, 'partially-fixed': 3, unresolved: 4, closed: 5 };
     const all = [...state.issues].sort((a, b) => (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9) || (a.createdAt < b.createdAt ? 1 : -1));
@@ -1401,7 +1506,7 @@
         <button class="ibtn" data-act="settings" title="Settings & projects">⚙</button>
         <button class="ibtn" data-act="closeList" title="Close">${IC.close}</button>
       </div>
-      <div class="lhead">
+      ${detailIssue ? retestDetail(detailIssue) : `<div class="lhead">
         <div class="srch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input class="inp" id="fSearch" type="search" placeholder="Search issues" value="${esc(ui.q || '')}" autocomplete="off"></div>
         <div class="seg tabs">
           <button data-view="all" aria-pressed="${ui.view === 'all'}">Issues <span class="cnt" title="Open + reopened">${counts.open}</span></button>
@@ -1416,7 +1521,7 @@
         <button class="btn primary grow" data-act="export" title="Open and reopened issues in full; the rest listed by title only">Export ZIP</button>
         <label class="btn" title="Load the issues.json the developer sends back">Import<input type="file" accept=".json,application/json" hidden id="fImport"></label>
         <button class="ibtn" data-act="clear" title="Delete all issues">${ICON.trash}</button>
-      </div>`;
+      </div>`}`;
     // Re-rendering (status change, search…) must not throw the user back to the top of the list.
     const pb = p.querySelector('.pb');
     pb.scrollTop = scrollResetPending ? 0 : keepScroll;
@@ -1429,7 +1534,7 @@
   let scrollResetPending = false;
 
   /** Small in-page dialog asking why an issue is reopened. Resolves to the note, or null if cancelled. */
-  function askReopenNote(issueTitle) {
+  function askReopenNote(issueTitle, prefill = '') {
     return new Promise((resolve) => {
       const d = $('dlg');
       d.hidden = false;
@@ -1443,7 +1548,9 @@
           <div class="dact"><button class="btn ghost" data-d="cancel">Cancel</button><button class="btn primary" data-d="ok">Reopen</button></div>
         </div>`;
       const note = $('dNote');
+      note.value = prefill;
       note.focus();
+      note.setSelectionRange(note.value.length, note.value.length);
       const done = (v) => {
         d.hidden = true;
         d.innerHTML = '';
@@ -1474,7 +1581,7 @@
     let note = null;
     if (status === 'reopened') {
       const it = state.issues.find((x) => x.id === id);
-      note = await askReopenNote((it && it.title) || id);
+      note = await askReopenNote((it && it.title) || id, reopenPrefill(id));
       if (note === null) {
         renderList(); // put the status pill back
         return false;
@@ -1624,7 +1731,7 @@
       else if (mb.dataset.menu === 'project') openProjectMenu(mb);
       return;
     }
-    const go = t.closest('a.go');
+    const go = t.closest('a.go, a.pchip');
     if (go) {
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return; // let the browser open a new tab
       e.preventDefault();
@@ -1648,13 +1755,30 @@
         renderList();
         return saveUi();
       }
+      const det = t.closest('[data-detail]');
+      if (det) {
+        ui.detail = det.dataset.detail;
+        scrollResetPending = true;
+        renderList();
+        return saveUi();
+      }
       if (set) {
         if (!(await setStatus(set.dataset.id, set.dataset.set))) return;
+        if (ui.detail === set.dataset.id) {
+          ui.detail = null;
+          renderList();
+          saveUi();
+        }
         return toast(set.dataset.set === 'closed' ? 'Closed' : `Reopened — your note goes to the developer in the next export`);
       }
       if (act) {
         const a = act.dataset.act;
         if (a === 'closeList') toggleList(false);
+        else if (a === 'back') {
+          ui.detail = null;
+          renderList();
+          saveUi();
+        }
         else if (a === 'settings') {
           await send('openSettings', { section: 'projects' });        } else if (a === 'export') {
           act.disabled = true;
@@ -1705,6 +1829,14 @@
 
   $('list').addEventListener('change', async (e) => {
     try {
+      if (e.target.dataset.check != null && ui.detail) {
+        const n = +e.target.dataset.check;
+        const list = getChecks(ui.detail).filter((x) => x !== n);
+        if (e.target.checked) list.push(n);
+        setChecks(ui.detail, list);
+        renderList(); // updates the counters; scroll position is kept
+        return;
+      }
       if (e.target.dataset.status) {
         await setStatus(e.target.dataset.status, e.target.value);
       } else if (e.target.id === 'fImport') {

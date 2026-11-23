@@ -67,7 +67,8 @@ const summary = (i) => {
     pageTitle: (i.page && i.page.title) || '',
     tag: i.element ? i.element.tag : null,
     dev: r ? { status: r.status || '', note: [r.notes, r.verification, r.rootCause].filter(Boolean)[0] || '' } : null,
-    reopenCount: (i.history || []).length,
+    reopenCount: (i.history || []).filter((h) => h && h.reopenedAt).length, // only the tester's reopens, not the dev's log
+    resolution: r, // the developer's full result — the toolbar turns it into a retest checklist
     createdAt: i.createdAt || '',
     updatedAt: i.updatedAt || i.createdAt || '',
     projectId: K.db.projectOf(i),
