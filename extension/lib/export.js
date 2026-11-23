@@ -38,6 +38,16 @@
   };
 
   // ---------- small formatting helpers ----------
+  /** Developers' tools write lists either as arrays or as "a, b, c" text — accept both. */
+  const toList = (v) =>
+    Array.isArray(v)
+      ? v.map(String)
+      : v == null || v === ''
+        ? []
+        : String(v)
+            .split(/,\s+(?![^()]*\))/)
+            .map((s) => s.trim())
+            .filter(Boolean);
   const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
   const code = (s) => '`' + String(s).replace(/`/g, "'") + '`';
   const num = (v) => {
@@ -125,7 +135,7 @@
       history: i.history || [],
       retest: (i.history || [])
         .filter((h) => h.reopenedAt)
-        .map((h) => ({ at: h.reopenedAt, note: h.reopenNote || '', previousFix: [h.status, h.notes || h.verification || h.rootCause].filter(Boolean).join(' — '), files: h.filesChanged || [] })),
+        .map((h) => ({ at: h.reopenedAt, note: h.reopenNote || '', previousFix: [h.status, h.rootCause || h.notes || h.verification].filter(Boolean).join(' — '), files: toList(h.filesChanged) })),
     };
   };
 
