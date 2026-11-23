@@ -76,9 +76,11 @@
     const parts = [];
     parts.push(`size ${num(b.width)}×${num(b.height)}`);
     const fam = String(cs['font-family'] || '').split(',')[0].replace(/["']/g, '').trim();
-    const lh = cs['line-height'] === 'normal' ? 'normal' : num(cs['line-height']);
-    parts.push(`font ${fam} ${num(cs['font-size'])}/${lh} ${cs['font-weight'] || ''}`.trim());
-    parts.push(`color ${hex(cs.color)}`);
+    if (cs['font-size']) {
+      const lh = !cs['line-height'] ? '' : cs['line-height'] === 'normal' ? '/normal' : `/${num(cs['line-height'])}`;
+      parts.push(['font', fam, `${num(cs['font-size'])}${lh}`, cs['font-weight'] || ''].filter(Boolean).join(' '));
+    }
+    if (cs.color) parts.push(`color ${hex(cs.color)}`);
     const bg = hex(cs['background-color']);
     if (bg && bg !== 'transparent') parts.push(`bg ${bg}`);
     parts.push(`padding ${four(cs, 'padding')}`);
@@ -309,5 +311,6 @@
     return { folder, files, missing, detailed: ex.length, listed: briefs.length };
   };
 
+  X.currentStyles = currentStyles; // also used for the Redmine issue description
   K.exporter = X;
 })((globalThis.KQA = globalThis.KQA || {}));

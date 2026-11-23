@@ -19,6 +19,7 @@
     <nav class="side" aria-label="Settings sections">
       <a href="#rounds" data-nav="rounds">Rounds</a>
       <a href="#projects" data-nav="projects">Projects</a>
+      <a href="#redmine" data-nav="redmine">Redmine</a>
       <a href="#preferences" data-nav="preferences">Preferences</a>
       <a href="#backup" data-nav="backup">Backup</a>
     </nav>
@@ -68,6 +69,57 @@
         </form>
 
         <div class="card list" id="projList"></div>
+      </section>
+
+      <!-- Redmine -->
+      <section id="s-redmine" hidden>
+        <div class="shead">
+          <div>
+            <h1>Redmine</h1>
+            <p class="muted">Create Redmine issues when you report, update them when you close or reopen, and pull the developers' status back. Your API key stays in this browser — it is never exported or put in backups.</p>
+          </div>
+          <span class="saved" id="rmSaved" hidden>Saved</span>
+        </div>
+
+        <form class="card" id="rmConn" autocomplete="off">
+          <div class="card-body">
+            <h2>Connection</h2>
+            <label class="fld"><span>Redmine address</span><input class="inp" id="rmUrl" placeholder="https://redmine.example.com" spellcheck="false"><small class="muted">The Redmine home page address (not a project page).</small></label>
+            <label class="fld"><span>API key</span>
+              <div class="keyrow"><input class="inp mono" id="rmKey" type="password" placeholder="Paste your key" spellcheck="false" autocomplete="new-password"><button type="button" class="btn sm ghost" id="rmShow">Show</button></div>
+              <small class="muted">In Redmine: My account → API access key → Show. "Enable REST web service" must be on (Administration → Settings → API).</small></label>
+            <div class="err" id="rmErr" hidden></div>
+          </div>
+          <div class="card-foot">
+            <span class="muted" id="rmWho"></span><span class="sp"></span>
+            <button type="button" class="btn ghost danger" id="rmDisconnect" hidden>Disconnect</button>
+            <button type="submit" class="btn primary" id="rmTest">Test & save</button>
+          </div>
+        </form>
+
+        <div id="rmMore" hidden>
+          <div class="card">
+            <div class="card-body tight"><h2>Projects</h2><p class="muted">Which Redmine project and tracker each project's issues go to.</p></div>
+            <div id="rmProjects"></div>
+          </div>
+          <div class="card">
+            <div class="card-body tight"><h2>When you change a status here</h2><p class="muted">The Redmine status to set. Your reopen note is added as a Redmine comment.</p></div>
+            <div id="rmOut"></div>
+          </div>
+          <div class="card">
+            <div class="card-body tight"><h2>When the developer changes the status in Redmine</h2><p class="muted">What it means here. "Get updates from Redmine" in the toolbar applies these.</p></div>
+            <div id="rmIn"></div>
+          </div>
+          <div class="card">
+            <div class="card-body tight"><h2>Severity → priority</h2></div>
+            <div id="rmPrio"></div>
+          </div>
+          <div class="card">
+            <div class="row"><div><b>Create a Redmine issue when I save</b><p class="muted">Editing an issue later also updates its Redmine description.</p></div><button class="switch" id="rmSyncSave" role="switch" aria-checked="true"><span></span></button></div>
+            <div class="row"><div><b>Update Redmine when I close or reopen</b><p class="muted">Sets the mapped status and adds a comment.</p></div><button class="switch" id="rmSyncStatus" role="switch" aria-checked="true"><span></span></button></div>
+            <div class="row"><div><b>Attach screenshots</b><p class="muted">The element crop and the annotated screen.</p></div><button class="switch" id="rmAttach" role="switch" aria-checked="true"><span></span></button></div>
+          </div>
+        </div>
       </section>
 
       <!-- Preferences -->

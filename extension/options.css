@@ -122,3 +122,31 @@ h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 16
 .rtable th.num { font-family: var(--sans); font-size: 13px; }
 #roundTable { overflow-x: auto; }
 @media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Redmine + custom dropdown */
+.card-body.tight { padding-bottom: 8px; gap: 2px; }
+.card-body.tight h2 { margin: 0; }
+.card-body.tight p { margin: 2px 0 0; font-size: 13px; }
+.row.map { padding: 12px 24px; }
+.vhost { flex: none; }
+.vpair { display: flex; gap: 8px; }
+.keyrow { display: flex; gap: 8px; }
+.inp.mono { font-family: var(--mono); font-size: 13px; }
+.small { font-size: 12px; }
+.errtxt { color: #c7262d; font-size: 12px; max-width: 260px; display: inline-block; }
+.vsel { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 200px; max-width: 280px; height: 36px; padding: 0 10px 0 12px;
+  border-radius: 6px; background: var(--bg); box-shadow: var(--shadow-sm); font-size: 13px; text-align: left; transition: box-shadow .12s; }
+.vsel:hover { box-shadow: 0 0 0 1px rgba(0,0,0,.16), 0 2px 2px rgba(0,0,0,.04); }
+.vsel[aria-expanded="true"] { box-shadow: 0 0 0 1px var(--gray7), 0 0 0 4px rgba(0,0,0,.06); }
+.vsel .vl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vsel.empty .vl { color: var(--gray7); }
+.vsel svg { color: var(--gray9); flex: none; }
+.vmenu { position: absolute; z-index: 50; max-width: 360px; max-height: 320px; overflow: auto; background: var(--bg); border-radius: 10px; box-shadow: var(--shadow-lg); padding: 4px; }
+.vq { width: 100%; height: 34px; border: 0; border-bottom: 1px solid var(--gray2); padding: 0 10px; margin-bottom: 4px; outline: none; font: inherit; font-size: 13px; }
+.vi { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 8px; border-radius: 6px; font-size: 13px; text-align: left; outline: none; }
+.vi:hover, .vi:focus-visible { background: var(--gray1); }
+.vt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs { font: 11px var(--mono); color: var(--gray7); }
+.vc { width: 14px; text-align: center; color: var(--fg); }
+.vnone { padding: 10px; color: var(--gray9); font-size: 13px; }
+@media (max-width: 760px) { .vpair { flex-direction: column; } .vsel { min-width: 0; width: 100%; } }

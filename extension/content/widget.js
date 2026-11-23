@@ -1239,11 +1239,14 @@
       const out = R.renderOutputs(E.img, E.shapes, { numberOf, elementRect: elementRectPx(), outline: state.settings.outlineElement, margin: 16 * E.scale });
       // annotated: WebP (much smaller than PNG, still sharp for UI); element crop: PNG for exact pixels
       const images = { annotated: out.annotated.toDataURL('image/webp', 0.9), element: out.element ? out.element.toDataURL('image/png') : null };
-      const id = await send('saveIssue', { issue: i, raw: E.isNew ? E.raw : null, images });
+      const res = await send('saveIssue', { issue: i, raw: E.isNew ? E.raw : null, images });
+      const id = typeof res === 'string' ? res : res.id; // older background answered with the id only
+      const rm = (res && res.redmine) || null;
       const wasNew = E.isNew;
       closeEditor();
       if (wasNew && I.on) deselect();
-      toast(`${id} saved`);
+      if (rm && rm.error) toast(`${id} saved here — Redmine: ${rm.error}`, 'err', 9000);
+      else toast(rm && rm.created ? `${id} saved · Redmine #${rm.created}` : rm && rm.updated ? `${id} saved · Redmine #${rm.updated} updated` : `${id} saved`);
       refresh();
     } catch (err) {
       $('eErr').innerHTML = `<div class="errs">Save failed: ${esc(err.message)}</div>`;
@@ -1343,10 +1346,19 @@
   const statusPill = (i) =>
     `<button class="st st-${esc(i.status)}" data-menu="status" data-id="${esc(i.id)}" aria-haspopup="listbox" title="Change status">${esc(K.STATUS_LABEL[i.status])}${ICON.chev}</button>`;
 
+  /** "#123" link to the Redmine issue (opens in a new tab), or a warning when the last sync failed. */
+  const rmBadge = (i) =>
+    i.redmine && i.redmine.id
+      ? `<a class="rmb${i.redmine.error ? ' err' : ''}" href="${esc(i.redmine.url)}" target="_blank" rel="noopener" title="${esc(i.redmine.error ? 'Last Redmine update failed: ' + i.redmine.error : 'Open in Redmine')}">#${esc(i.redmine.id)}</a>`
+      : i.redmine && i.redmine.error
+        ? `<span class="rmb err" title="${esc('Not sent to Redmine: ' + i.redmine.error)}">!</span>`
+        : '';
+
   function issueRow(i) {
     return `<div class="irow" data-id="${esc(i.id)}">
       <span class="sdot sd-${esc(i.severity)}" title="${esc(K.severityLabel(i.severity))} severity"></span>
       <button class="it" ${i.resolution ? `data-detail="${esc(i.id)}" title="Review the developer's fix"` : `data-edit="${esc(i.id)}" title="Open — ${esc(i.title)}"`}>${esc(i.title)}</button>
+      ${rmBadge(i)}
       ${goLink(i)}
       ${statusPill(i)}
       <button class="ibtn del" data-del="${esc(i.id)}" title="Delete">${ICON.trash}</button>
@@ -1446,6 +1458,7 @@
         <button class="ibtn" data-act="back" title="Back to the list">${ICON.back}</button>
         <span class="muted">Retest</span>
         <span class="sp"></span>
+        ${i.redmine && i.redmine.id ? `<a class="btn sm ghost" href="${esc(i.redmine.url)}" target="_blank" rel="noopener">Redmine #${esc(i.redmine.id)}</a>` : ''}
         <button class="btn sm ghost" data-edit="${esc(i.id)}">Open issue</button>
       </div>
       <div class="pb dbody">
@@ -1531,6 +1544,7 @@
       <div class="pb">${body}</div>
       <div class="pf">
         <button class="btn primary grow" data-act="export" title="Open and reopened issues in full; the rest listed by title only">Export ZIP</button>
+        ${state.redmine && state.redmine.configured ? `<button class="btn" data-menu="redmine" aria-haspopup="listbox" title="Redmine">Redmine${ICON.chev}</button>` : ''}
         <label class="btn" title="Load the issues.json the developer sends back">Import<input type="file" accept=".json,application/json" hidden id="fImport"></label>
         <button class="ibtn" data-act="clear" title="Delete all issues">${ICON.trash}</button>
       </div>`}`;
@@ -1599,8 +1613,12 @@
         return false;
       }
     }
-    await send('setStatus', { id, status, note });
+    const r = await send('setStatus', { id, status, note });
     await refresh();
+    if (r && r.warning) {
+      toast(r.warning, 'err', 9000);
+      return 'warned';
+    }
     return true;
   }
 
@@ -1700,12 +1718,50 @@
       async (pick) => {
         if (pick.value === it.status) return;
         try {
-          if (await setStatus(id, pick.value)) toast(pick.value === 'reopened' ? 'Reopened — your note goes to the developer in the next export' : `Status: ${K.STATUS_LABEL[pick.value]}`);
+          if ((await setStatus(id, pick.value)) === true) toast(pick.value === 'reopened' ? 'Reopened — your note goes to the developer in the next export' : `Status: ${K.STATUS_LABEL[pick.value]}`);
         } catch (err) {
           toast(err.message, 'err', 6000);
         }
       }
     );
+  }
+
+  function openRedmineMenu(anchor) {
+    const rmState = state.redmine || {};
+    const unsent = state.issues.filter((i) => (i.status === 'open' || i.status === 'reopened') && !(i.redmine && i.redmine.id)).length;
+    const items = rmState.linked
+      ? [
+          { value: 'pull', label: 'Get updates from Redmine' },
+          { value: 'push', label: unsent ? `Send ${unsent} issue${unsent === 1 ? '' : 's'} not in Redmine yet` : 'All open issues are in Redmine', sub: '' },
+          { sep: true },
+          { value: 'settings', label: 'Redmine settings' },
+        ]
+      : [{ heading: 'This project is not linked to Redmine' }, { value: 'settings', label: 'Link it in Redmine settings' }];
+    openMenu(anchor, items, async (pick) => {
+      try {
+        if (pick.value === 'settings') return send('openSettings', { section: 'redmine' });
+        if (pick.value === 'push') {
+          if (!unsent) return;
+          toast(`Sending ${unsent} issue${unsent === 1 ? '' : 's'} to Redmine…`, '', 60000);
+          const r = await send('redminePushAll', { projectId: state.activeProject });
+          await refresh();
+          return toast(`${r.sent} sent to Redmine${r.failed.length ? ` · ${r.failed.length} failed: ${r.failed[0]}` : ''}`, r.failed.length ? 'err' : '', 9000);
+        }
+        if (pick.value === 'pull') {
+          toast('Getting updates from Redmine…', '', 60000);
+          const r = await send('redminePull', { projectId: state.activeProject });
+          await refresh();
+          if (r.updated) {
+            ui.view = 'retest';
+            saveUi();
+            renderList();
+          }
+          return toast(r.checked ? `${r.updated} of ${r.checked} issue${r.checked === 1 ? '' : 's'} changed in Redmine${r.updated ? ' — see Retest' : ''}` : 'No issues are linked to Redmine yet.', '', 7000);
+        }
+      } catch (err) {
+        toast(err.message, 'err', 9000);
+      }
+    });
   }
 
   function openProjectMenu(anchor) {
@@ -1740,6 +1796,7 @@
     const mb = t.closest('[data-menu]');
     if (mb) {
       if (mb.dataset.menu === 'status') openStatusMenu(mb);
+      else if (mb.dataset.menu === 'redmine') openRedmineMenu(mb);
       else if (mb.dataset.menu === 'project') openProjectMenu(mb);
       return;
     }
@@ -1775,12 +1832,14 @@
         return saveUi();
       }
       if (set) {
-        if (!(await setStatus(set.dataset.id, set.dataset.set))) return;
+        const ok = await setStatus(set.dataset.id, set.dataset.set);
+        if (!ok) return;
         if (ui.detail === set.dataset.id) {
           ui.detail = null;
           renderList();
           saveUi();
         }
+        if (ok === 'warned') return;
         return toast(set.dataset.set === 'closed' ? 'Closed' : `Reopened — your note goes to the developer in the next export`);
       }
       if (act) {

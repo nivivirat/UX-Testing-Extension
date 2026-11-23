@@ -68,6 +68,26 @@ full-resolution crop of the selected element (PNG) — usually 30–150 KB per i
 Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (you) **Closed** or
 **Reopened**. Issues marked *verified* by older versions show as **Closed**.
 
+### Redmine
+
+**Settings → Redmine**: enter the Redmine address (e.g. `https://tracker.example.com`) and your API key
+(Redmine → *My account* → *API access key*), then **Test & save**. Link each project to a Redmine
+project, tracker, optional assignee and the **Severity** custom field (detected from existing bugs).
+Status and priority mappings are pre-filled by name and can be changed.
+
+- **Saving an issue** creates the Redmine issue with the description, page, technical details and
+  both screenshots (and updates the description when you edit it later).
+- **Close / Reopen** sets the mapped Redmine status and adds a comment (your reopen note). If the
+  Redmine workflow does not allow that status, you get a warning — the comment is still added.
+- **Redmine ▾ → Get updates from Redmine** pulls the status the developers set (e.g. *Dev Fixed* →
+  Fixed) and their latest comment into the Retest tab.
+- **Redmine ▾ → Send issues not in Redmine yet** retries anything that failed or was saved before
+  Redmine was set up.
+- Each row shows the Redmine number (`#123`), which opens the issue in Redmine.
+
+The API key is stored only in this browser. It is never exported, never put in backups, and is
+never part of the code.
+
 ### Testing rounds
 
 A round is one cycle: **Import** the developer's results → retest → test the whole app → **Export**.

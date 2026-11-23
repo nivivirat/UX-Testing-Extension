@@ -267,6 +267,12 @@ textarea.inp { height: auto; min-height: 60px; padding: 9px 12px; resize: vertic
 .link:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 .link.danger { color: var(--red); }
 
+.rmb { font: 500 11px var(--mono); color: var(--gray9); text-decoration: none; padding: 2px 6px; border-radius: 5px; box-shadow: var(--ring); white-space: nowrap; }
+.rmb:hover { color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.rmb.err { color: var(--red); box-shadow: 0 0 0 1px #F7C1C1; background: var(--red-soft); }
+.irow { grid-template-columns: 8px minmax(0,1fr) auto 28px 108px 26px !important; }
+.irow > .it + .go { grid-column: 4; }
+
 /* current round strip */
 .rstrip { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 16px; background: var(--bg2); border-bottom: 1px solid var(--gray2); font-size: 12px; color: var(--gray9); text-align: left; transition: background .12s; }
 .rstrip:hover { background: var(--gray1); }

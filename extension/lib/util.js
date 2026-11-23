@@ -308,11 +308,21 @@
   K.parseResolution = (r) => {
     if (!r || typeof r !== 'object') return null;
     const asText = (v) => (Array.isArray(v) ? v.join(', ') : v == null ? '' : String(v));
-    const raw = Array.isArray(r.points)
+    let raw = Array.isArray(r.points)
       ? r.points
       : Array.isArray(r.problems)
         ? r.problems.map((p) => (typeof p === 'string' ? p : `${p.point || ''}: ${p.status || ''}${p.note ? ' — ' + p.note : ''}`))
         : [];
+    // Redmine gives a free-text comment instead of points: each line of it becomes something to check.
+    if (!raw.length && r.notes && r.source === 'redmine') {
+      const st = r.status === 'fixed' ? 'fixed' : r.status === 'partially-fixed' ? 'partly fixed' : 'not fixed';
+      raw = String(r.notes)
+        .split(/\n+/)
+        .map((l) => l.replace(/^\s*[-*•\d.)]+\s*/, '').trim())
+        .filter(Boolean)
+        .slice(0, 12)
+        .map((l) => `${l}: ${st}`);
+    }
     const STATE = /:\s*(not fixed|partially fixed|partly fixed|unresolved|skipped|fixed)\b/gi;
     const points = raw.map((line) => {
       const s = String(line).trim();

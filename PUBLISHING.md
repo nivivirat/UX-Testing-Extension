@@ -33,8 +33,8 @@ before each new upload.
    - **Data:** stored locally only, not sold or transferred. Link to `PRIVACY.md` on GitHub.
 5. Submit. After approval, share the item link with testers.
 
-**Faster review:** in `manifest.json`, replace `"<all_urls>"` with your KHDA hosts, for example
-`"https://*.khda.gov.ae/*"`. A narrower site access list gets reviewed faster, and testers see a
+**Faster review:** in `manifest.json`, replace `"<all_urls>"` with your KHDA hosts **and your
+Redmine host**, for example `"https://*.khda.gov.ae/*", "https://tracker.example.com/*"`. A narrower site access list gets reviewed faster, and testers see a
 milder permission warning.
 
 ### GitHub release ZIP (free, no review)

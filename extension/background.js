@@ -1,6 +1,6 @@
 // Service worker: owns storage (IndexedDB in the extension origin), screenshots, React lookup and export.
 // The floating toolbar in the page talks to it with chrome.runtime.sendMessage.
-importScripts('lib/util.js', 'lib/zip.js', 'lib/export.js', 'lib/db.js', 'lib/react-info.js');
+importScripts('lib/util.js', 'lib/zip.js', 'lib/export.js', 'lib/db.js', 'lib/react-info.js', 'lib/redmine.js');
 const K = self.KQA;
 const WIDGET_FILES = ['lib/util.js', 'lib/render.js', 'content/widget-styles.js', 'content/widget.js'];
 const canRun = (url) => /^(https?|file):/.test(url || '');
@@ -68,6 +68,7 @@ const summary = (i) => {
     tag: i.element ? i.element.tag : null,
     dev: r ? { status: r.status || '', note: [r.notes, r.verification, r.rootCause].filter(Boolean)[0] || '' } : null,
     reopenCount: (i.history || []).filter((h) => h && h.reopenedAt).length, // only the tester's reopens, not the dev's log
+    redmine: i.redmine ? { id: i.redmine.id || null, url: i.redmine.url || '', error: i.redmine.error || null } : null,
     resolution: r, // the developer's full result — the toolbar turns it into a retest checklist
     createdAt: i.createdAt || '',
     updatedAt: i.updatedAt || i.createdAt || '',
@@ -92,6 +93,15 @@ async function shrinkForClaude(blob, maxEdge) {
   }
 }
 
+/** Is Redmine set up, and is the active project linked? (for the toolbar's Redmine menu) */
+async function redmineState() {
+  const cfg = await rmConfig();
+  if (!cfg) return { configured: false };
+  const pid = await K.db.getActiveProjectId();
+  const p = (await K.db.getProjects()).find((x) => x.id === pid);
+  return { configured: true, linked: !!(p && p.redmine && p.redmine.projectId), url: RM.base(cfg.url) };
+}
+
 /** Numbers for the round in progress of the active project (shown in the toolbar). */
 async function currentRoundSummary() {
   const pid = await K.db.getActiveProjectId();
@@ -100,6 +110,169 @@ async function currentRoundSummary() {
   const last = all[all.length - 1];
   // After an export the next round has not started yet — show it as "Round N+1, not started".
   return last && last.inProgress ? last : { n: (last ? last.n : 0) + 1, inProgress: true, notStarted: true, created: 0, closed: 0, reopened: 0, fromDev: 0 };
+}
+
+// ---------- Redmine ----------
+const RM = K.redmine;
+/** Config from local storage (address, key, mappings). null when Redmine is not set up / switched off. */
+async function rmConfig() {
+  const c = await K.db.getMeta('redmine');
+  return c && c.url && c.key && c.enabled !== false ? c : null;
+}
+/** Redmine project/tracker linked to the issue's project, or null. */
+async function rmLink(issue) {
+  const p = (await K.db.getProjects()).find((x) => x.id === K.db.projectOf(issue));
+  return p && p.redmine && p.redmine.projectId ? p.redmine : null;
+}
+/** Re-encode a stored screenshot for Redmine (PNG/JPEG display everywhere; WebP may not). */
+async function rmImage(blob, maxEdge, type) {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+    const c = new OffscreenCanvas(Math.round(bmp.width * k), Math.round(bmp.height * k));
+    const ctx = c.getContext('2d');
+    if (type === 'image/jpeg') {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, c.width, c.height);
+    }
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    return await c.convertToBlob(type === 'image/jpeg' ? { type, quality: 0.9 } : { type });
+  } catch {
+    return blob;
+  }
+}
+/** Plain-text description: reads well whether the Redmine server uses Textile or Markdown. */
+function rmDescription(issue) {
+  K.ensureDescription(issue);
+  const el = issue.element;
+  const level = (issue.scope && issue.scope.level) || 'instance';
+  const vp = issue.environment && issue.environment.viewport;
+  const L = [];
+  L.push(String(issue.description || '').trim(), '');
+  L.push(`Page: ${(issue.page && issue.page.url) || ''}`);
+  if (vp) L.push(`Screen size: ${vp.width} x ${vp.height}${issue.page && issue.page.lang ? `, ${issue.page.lang} / ${String(issue.page.dir || 'ltr').toUpperCase()}` : ''}`);
+  L.push(`Fix level: ${level.toUpperCase()} - ${(issue.scope && issue.scope.appliesTo) || K.defaultAppliesTo(level, el)}`);
+  L.push(`Severity: ${K.severityLabel(issue.severity || 'medium')}`);
+  if (issue.flagged && issue.flagged.length) L.push(`Flagged values: ${issue.flagged.map((f) => `${f.property} = ${f.current}`).join('; ')}`);
+  if (el) {
+    L.push('', 'Where to look:');
+    if (el.source) L.push(`- Source: ${el.source}`);
+    if (el.componentChain && el.componentChain.length) L.push(`- Component: ${el.componentChain.slice(-4).join(' > ')}`);
+    if (el.selector) L.push(`- Selector: ${el.selector}`);
+    const now = K.exporter.currentStyles(el);
+    if (now) L.push(`- Current: ${now}`);
+  }
+  if (issue.figma && issue.figma.url) L.push('', `Figma: ${issue.figma.url}`);
+  L.push('', `Screenshots attached. QA ID: ${issue.id} (KHDA Visual QA)`);
+  return L.join('\n');
+}
+const rmSubject = (issue) => String(issue.title || K.titleFrom(issue.description, issue.element)).slice(0, 250);
+
+/** Create the Redmine issue (with screenshots) or update its subject/description. Mutates issue.redmine. */
+async function rmPush(issue) {
+  const cfg = await rmConfig();
+  const link = cfg && (await rmLink(issue));
+  if (!cfg || !link) return { skipped: true };
+  const subject = rmSubject(issue);
+  const description = rmDescription(issue);
+  if (issue.redmine && issue.redmine.id) {
+    await RM.updateIssue(cfg, issue.redmine.id, { subject, description, notes: 'Description updated from KHDA Visual QA.' });
+    issue.redmine = { ...issue.redmine, syncedAt: K.isoLocal(), error: null };
+    return { updated: issue.redmine.id };
+  }
+  const uploads = [];
+  if (cfg.attach !== false) {
+    for (const [kind, max, type, suffix] of [
+      ['element', 1600, 'image/png', 'element.png'],
+      ['annotated', 1920, 'image/jpeg', 'screen.jpg'],
+    ]) {
+      const b = await K.db.getBlob(`${issue.id}:${kind}`);
+      if (!b) continue;
+      const filename = `${issue.id}-${suffix}`;
+      uploads.push({ token: await RM.upload(cfg, await rmImage(b, max, type), filename), filename, content_type: type });
+    }
+  }
+  const payload = { project_id: link.projectId, subject, description };
+  if (uploads.length) payload.uploads = uploads;
+  if (link.trackerId) payload.tracker_id = link.trackerId;
+  const pr = cfg.priority && cfg.priority[issue.severity || 'medium'];
+  if (pr) payload.priority_id = pr;
+  // Project-specific: severity custom field (e.g. "Severity" = Major) and default assignee.
+  const sevVal = link.severityField && link.severityMap && link.severityMap[issue.severity || 'medium'];
+  if (link.severityField && link.severityField.id && sevVal) payload.custom_fields = [{ id: link.severityField.id, value: sevVal }];
+  if (link.assigneeId) payload.assigned_to_id = link.assigneeId;
+  const created = await RM.createIssue(cfg, payload);
+  issue.redmine = { id: created.id, url: RM.issueUrl(cfg, created.id), lastStatusId: (created.status && created.status.id) || null, syncedAt: K.isoLocal(), error: null };
+  return { created: created.id };
+}
+
+/** Mirror a status change into Redmine, with the tester's note as a comment. Returns a warning or null. */
+async function rmStatus(issue, status, note) {
+  const cfg = await rmConfig();
+  if (!cfg || cfg.syncStatus === false || !issue.redmine || !issue.redmine.id) return null;
+  const sid = cfg.statusOut && cfg.statusOut[status];
+  const notes =
+    status === 'reopened'
+      ? `Reopened after retest (KHDA Visual QA):\n${note || ''}`.trim()
+      : status === 'closed'
+        ? 'Verified by the tester and closed (KHDA Visual QA).'
+        : `Status set to "${K.STATUS_LABEL[status] || status}" in KHDA Visual QA.`;
+  const payload = { notes };
+  if (sid) payload.status_id = sid;
+  await RM.updateIssue(cfg, issue.redmine.id, payload);
+  issue.redmine = { ...issue.redmine, syncedAt: K.isoLocal(), error: null };
+  if (!sid) return null;
+  // Redmine silently ignores a status its workflow does not allow — check what actually happened.
+  const [now] = await RM.issuesStatus(cfg, [issue.redmine.id]);
+  const got = now && now.status;
+  issue.redmine.lastStatusId = got ? got.id : sid;
+  if (got && got.id !== sid) {
+    const want = ((cfg.statuses || []).find((x) => x.id === sid) || {}).name || sid;
+    return `Redmine #${issue.redmine.id}: your note was added, but its workflow kept the status "${got.name}" instead of "${want}".`;
+  }
+  return null;
+}
+
+/** Pull statuses the developers set in Redmine (+ their latest comment) into the extension. */
+async function rmPull(pid) {
+  const cfg = await rmConfig();
+  if (!cfg) throw new Error('Redmine is not set up — add it in Settings → Redmine.');
+  const linked = (await K.db.getAllIssues()).filter((i) => K.db.projectOf(i) === pid && i.redmine && i.redmine.id);
+  if (!linked.length) return { checked: 0, updated: 0, changes: [] };
+  const remote = await RM.issuesStatus(cfg, linked.map((i) => i.redmine.id));
+  const byId = new Map(remote.map((r) => [r.id, r]));
+  const me = cfg.user && cfg.user.id;
+  const changes = [];
+  for (const issue of linked) {
+    const r = byId.get(issue.redmine.id);
+    if (!r || !r.status) continue;
+    const seen = issue.redmine.lastStatusId;
+    issue.redmine = { ...issue.redmine, lastStatusId: r.status.id, remoteStatus: r.status.name, syncedAt: K.isoLocal() };
+    const meaning = (cfg.statusIn || {})[r.status.id] || '';
+    const local = K.normStatus(issue.status);
+    if (r.status.id === seen || !meaning || meaning === local) {
+      await K.db.putIssue(issue);
+      continue;
+    }
+    // Latest comment written by someone other than me = the developer's note.
+    let devNote = '';
+    try {
+      const journals = await RM.issueJournals(cfg, issue.redmine.id);
+      const j = [...journals].reverse().find((x) => x.notes && String(x.notes).trim() && (!me || !x.user || x.user.id !== me));
+      devNote = j ? String(j.notes).trim() : '';
+    } catch {
+      /* comments are a bonus; the status still syncs */
+    }
+    if (K.RETEST.includes(meaning)) {
+      issue.resolution = { status: meaning, notes: devNote || `Redmine status: ${r.status.name}`, resolvedAt: r.updated_on || K.isoLocal(), source: 'redmine', redmineStatus: r.status.name };
+      await K.db.logEvent(pid, 'devResult', issue.id, { to: meaning });
+    } else if (meaning === 'closed' || meaning === 'reopened') await K.db.logEvent(pid, meaning, issue.id, { to: meaning });
+    issue.status = meaning;
+    issue.updatedAt = K.isoLocal();
+    await K.db.putIssue(issue);
+    changes.push({ id: issue.id, redmine: issue.redmine.id, to: meaning, from: local });
+  }
+  return { checked: linked.length, updated: changes.length, changes };
 }
 
 // ---------- message handlers ----------
@@ -112,6 +285,7 @@ const handlers = {
       activeProject: await K.db.getActiveProjectId(),
       issues: issues.map(summary),
       round: await currentRoundSummary(),
+      redmine: await redmineState(),
     };
   },
 
@@ -218,7 +392,18 @@ const handlers = {
       else if (kind === 'element') await K.db.deleteBlob(`${issue.id}:element`);
     }
     await K.db.putIssue(issue);
-    return issue.id;
+    let redmine = null;
+    const cfg = await rmConfig();
+    if (cfg && cfg.syncOnSave !== false && (await rmLink(issue))) {
+      try {
+        redmine = await rmPush(issue);
+      } catch (e) {
+        issue.redmine = { ...(issue.redmine || {}), error: e.message };
+        redmine = { error: e.message };
+      }
+      await K.db.putIssue(issue);
+    }
+    return { id: issue.id, redmine };
   },
 
   async getIssue({ id }) {
@@ -247,7 +432,70 @@ const handlers = {
     issue.status = status;
     issue.updatedAt = K.isoLocal();
     await K.db.putIssue(issue);
-    return true;
+    let warning = null;
+    try {
+      warning = await rmStatus(issue, status, note);
+    } catch (e) {
+      issue.redmine = { ...(issue.redmine || {}), error: e.message };
+      warning = `Saved here, but Redmine was not updated: ${e.message}`;
+    }
+    if (issue.redmine) await K.db.putIssue(issue);
+    return { warning };
+  },
+
+  // ---- Redmine (settings page + toolbar) ----
+  async redmineTest({ url, key }) {
+    const cfg = { url, key };
+    const user = await RM.currentUser(cfg);
+    const meta = await RM.meta(cfg);
+    return { user, meta, defaults: RM.defaultMappings(meta) };
+  },
+  async redmineTrackers({ projectId }) {
+    const cfg = await K.db.getMeta('redmine');
+    return RM.projectTrackers(cfg, projectId);
+  },
+  async redmineProjectSetup({ projectId }) {
+    const cfg = await K.db.getMeta('redmine');
+    const setup = await RM.projectSetup(cfg, projectId);
+    return { ...setup, severityDefaults: Object.fromEntries(setup.fields.map((f) => [f.id, RM.defaultSeverityMap(f.values)])) };
+  },
+  async redminePush({ id }) {
+    const issue = await K.db.getIssue(id);
+    if (!issue) throw new Error(`${id} not found`);
+    if (!(await rmConfig())) throw new Error('Redmine is not set up — add it in Settings → Redmine.');
+    if (!(await rmLink(issue))) throw new Error('This project is not linked to a Redmine project yet (Settings → Redmine).');
+    try {
+      const r = await rmPush(issue);
+      await K.db.putIssue(issue);
+      return { ...r, url: issue.redmine && issue.redmine.url };
+    } catch (e) {
+      issue.redmine = { ...(issue.redmine || {}), error: e.message };
+      await K.db.putIssue(issue);
+      throw e;
+    }
+  },
+  /** Send every open/reopened issue of the project that is not in Redmine yet. */
+  async redminePushAll({ projectId }) {
+    const pid = projectId || (await K.db.getActiveProjectId());
+    if (!(await rmConfig())) throw new Error('Redmine is not set up — add it in Settings → Redmine.');
+    const todo = (await K.db.getAllIssues()).filter((i) => K.db.projectOf(i) === pid && K.exporter.isActive(i) && !(i.redmine && i.redmine.id));
+    if (todo.length && !(await rmLink(todo[0]))) throw new Error('This project is not linked to a Redmine project yet (Settings → Redmine).');
+    let sent = 0;
+    const failed = [];
+    for (const issue of todo) {
+      try {
+        await rmPush(issue);
+        sent++;
+      } catch (e) {
+        issue.redmine = { ...(issue.redmine || {}), error: e.message };
+        failed.push(`${issue.id}: ${e.message}`);
+      }
+      await K.db.putIssue(issue);
+    }
+    return { sent, failed };
+  },
+  async redminePull({ projectId }) {
+    return rmPull(projectId || (await K.db.getActiveProjectId()));
   },
 
   async importJson({ text }) {
@@ -284,7 +532,9 @@ const handlers = {
         const b = await K.db.getBlob(`${i.id}:${kind}`);
         if (b) blobs[`${i.id}:${kind}`] = await blobToDataUrl(b);
       }
-    const data = { kind: 'khda-visual-qa-backup', version: 1, createdAt: K.isoLocal(), issues, blobs, meta: await K.db.allMeta() };
+    const meta = await K.db.allMeta();
+    if (meta.redmine) meta.redmine = { ...meta.redmine, key: '' }; // never put the API key in a file
+    const data = { kind: 'khda-visual-qa-backup', version: 1, createdAt: K.isoLocal(), issues, blobs, meta };
     const bytes = new TextEncoder().encode(JSON.stringify(data));
     const d = K.isoLocal().slice(0, 10);
     await chrome.downloads.download({ url: 'data:application/json;base64,' + b64(bytes), filename: `KHDA-QA-backup-${d}.json`, saveAs: false });
