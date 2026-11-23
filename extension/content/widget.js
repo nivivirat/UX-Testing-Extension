@@ -545,8 +545,10 @@
     if (el) select(el);
   }
   function onKey(e) {
-    const target = e.composedPath()[0];
-    if (isOurs(e) && target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    // Typing in the toolbar's own inputs (search…) must not trigger inspector shortcuts.
+    // (composedPath() from a window listener can't see inside the closed shadow root — use activeElement.)
+    const target = isOurs(e) ? shadow.activeElement : null;
+    if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
     const stop = () => {
       e.preventDefault();
       e.stopPropagation();
@@ -1547,13 +1549,23 @@
       if (a) a.focus();
     } else if (e.key === 'Tab') closeMenu();
   });
-  // Close when clicking anywhere else (in the toolbar or on the page), or when the window resizes.
-  window.addEventListener(
+  // Close when clicking anywhere else, or when the window resizes.
+  // NOTE: the shadow root is *closed*, so a listener on window cannot see which element inside the
+  // toolbar was clicked (composedPath() stops at the host). Clicks inside the toolbar are therefore
+  // judged by a listener on the shadow root itself; the window listener only handles page clicks.
+  shadow.addEventListener(
     'pointerdown',
     (e) => {
       if (!menuState) return;
       const path = e.composedPath();
       if (!path.includes($('menu')) && !path.includes(menuState.anchor)) closeMenu();
+    },
+    true
+  );
+  window.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (menuState && !e.composedPath().includes(host)) closeMenu();
     },
     true
   );
