@@ -31,4 +31,6 @@ const bytes = await globalThis.KQA.makeZipBytes(files);
 mkdirSync(join(root, 'dist'), { recursive: true });
 const out = join(root, 'dist', `khda-visual-qa-${manifest.version}.zip`);
 writeFileSync(out, bytes);
+// Same file under a fixed name, so the README's download button always points at the latest release.
+writeFileSync(join(root, 'dist', 'khda-visual-qa.zip'), bytes);
 console.log(`${files.length} files → ${relative(root, out)} (${Math.round(bytes.length / 1024)} KB)`);

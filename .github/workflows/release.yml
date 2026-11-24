@@ -17,4 +17,4 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --notes "Install: download the ZIP, unzip it, then chrome://extensions → Developer mode → Load unpacked → select the unzipped folder."
+        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --title "KHDA Visual QA $GITHUB_REF_NAME" --notes "Download **khda-visual-qa.zip** below. Install and update steps: https://github.com/${{ github.repository }}#readme"
