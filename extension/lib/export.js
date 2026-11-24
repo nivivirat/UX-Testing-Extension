@@ -135,6 +135,7 @@
       acceptance: K.defaultAcceptance(i),
       resolution: i.resolution || null,
       history: i.history || [],
+      redmine: i.redmine && i.redmine.id ? { id: i.redmine.id, status: i.redmine.statusName || '' } : null,
       retest: (i.history || [])
         .filter((h) => h.reopenedAt)
         .map((h) => ({ at: h.reopenedAt, note: h.reopenNote || '', previousFix: [h.status, h.rootCause || h.notes || h.verification].filter(Boolean).join(' — '), files: toList(h.filesChanged) })),
@@ -145,7 +146,7 @@
   X.buildIssuesJson = (ex, settings, exportedAt, briefs = []) => ({
     schemaVersion: X.SCHEMA_VERSION,
     export: { project: settings.projectName, environment: settings.environment, reporter: settings.reporter, exportedAt, tool: X.TOOL_NAME },
-    issues: ex.map((x) => ({ id: x.id, title: x.title, status: x.status, severity: x.severity, scope: x.scope.level, page: x.page.route, file: x.files.md, resolution: x.resolution, history: x.history })),
+    issues: ex.map((x) => ({ id: x.id, title: x.title, status: x.status, severity: x.severity, scope: x.scope.level, page: x.page.route, file: x.files.md, ...(x.redmine ? { redmine: x.redmine.id } : {}), resolution: x.resolution, history: x.history })),
     otherIssues: briefs,
   });
 
@@ -160,6 +161,7 @@
         `${x.status === 'reopened' ? ' · **REOPENED**' : ''} · **Page:** ${code(x.page.route)}${vp ? ` at ${vp.width}×${vp.height}` : ''}${x.page.lang ? `, ${x.page.lang}/${x.page.dir.toUpperCase()}` : ''}`,
       ''
     );
+    if (x.redmine) L.push(`Redmine #${x.redmine.id}${x.redmine.status ? ` (${x.redmine.status})` : ''} — update that issue in Redmine when you finish.`, '');
     if (x.scope.alsoSeenOn.length) L.push(`Also seen on: ${x.scope.alsoSeenOn.map(code).join(', ')}`, '');
 
     L.push("## What's wrong", '');

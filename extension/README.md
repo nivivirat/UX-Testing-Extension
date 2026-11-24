@@ -77,10 +77,18 @@ Status and priority mappings are pre-filled by name and can be changed.
 
 - **Saving an issue** creates the Redmine issue with the description, page, technical details and
   both screenshots (and updates the description when you edit it later).
-- **Close / Reopen** sets the mapped Redmine status and adds a comment (your reopen note). If the
-  Redmine workflow does not allow that status, you get a warning — the comment is still added.
-- **Redmine ▾ → Get updates from Redmine** pulls the status the developers set (e.g. *Dev Fixed* →
-  Fixed) and their latest comment into the Retest tab.
+- **Redmine is the source of truth for status.** Issues in Redmine show Redmine's own status
+  (*New*, *Dev Fixed*, *Reopen*, *Passed*…). Click the pill to pick any Redmine status: it is changed
+  in Redmine first, then read back, so the list always shows what Redmine really has. If Redmine is
+  unreachable nothing changes; if its workflow refuses the change you get a warning.
+- **Each Redmine status counts in one bucket** — Open, Reopened, Fixed, Partly fixed, Couldn't fix /
+  rejected, Closed — which decides the tab, the filters and the round stats. Pre-filled by name
+  (Settings → Redmine → *How each Redmine status counts here*), changeable.
+- **Close / Reopen** in Retest set the Redmine status chosen in Settings and add a comment (your
+  reopen note). Closing an issue Redmine already closed (e.g. *Rejected*) accepts it without changing
+  Redmine.
+- Statuses refresh from Redmine when you open the issues panel (at most every 2 minutes), or with
+  **Redmine ▾ → Get updates from Redmine**; the developer's latest comment appears in Retest.
 - **Redmine ▾ → Send issues not in Redmine yet** retries anything that failed or was saved before
   Redmine was set up.
 - Each row shows the Redmine number (`#123`), which opens the issue in Redmine.

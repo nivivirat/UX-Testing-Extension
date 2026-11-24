@@ -246,7 +246,8 @@ textarea.inp { height: auto; min-height: 60px; padding: 9px 12px; resize: vertic
 .mi:hover, .mi:focus-visible { background: var(--gray1); }
 .mi .ml { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mi .msub { font: 11px var(--mono); color: var(--gray7); }
-.mi .ck { width: 14px; display: inline-grid; place-items: center; color: var(--fg); flex: none; }
+.mi .ck { width: 14px; display: inline-grid; place-items: center; color: var(--fg); flex: none; padding: 0; box-shadow: none; background: none; border-radius: 0; }
+.mi .msub { white-space: nowrap; }
 .mi .mic { color: var(--gray9); flex: none; }
 .mi.danger { color: var(--red); }
 .mdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -270,7 +271,10 @@ textarea.inp { height: auto; min-height: 60px; padding: 9px 12px; resize: vertic
 .rmb { font: 500 11px var(--mono); color: var(--gray9); text-decoration: none; padding: 2px 6px; border-radius: 5px; box-shadow: var(--ring); white-space: nowrap; }
 .rmb:hover { color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
 .rmb.err { color: var(--red); box-shadow: 0 0 0 1px #F7C1C1; background: var(--red-soft); }
-.irow { grid-template-columns: 8px minmax(0,1fr) auto 28px 108px 26px !important; }
+.irow { grid-template-columns: 8px minmax(0,1fr) auto 28px 120px 26px !important; }
+.st .stl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.irow .st { min-width: 0; overflow: hidden; }
+.dnote b, .dmeta .st { max-width: 100%; }
 .irow > .it + .go { grid-column: 4; }
 
 /* current round strip */

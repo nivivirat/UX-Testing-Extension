@@ -103,11 +103,11 @@
             <div id="rmProjects"></div>
           </div>
           <div class="card">
-            <div class="card-body tight"><h2>When you change a status here</h2><p class="muted">The Redmine status to set. Your reopen note is added as a Redmine comment.</p></div>
+            <div class="card-body tight"><h2>Close and Reopen buttons</h2><p class="muted">The Redmine status the Retest buttons set. Your reopen note is added as a Redmine comment. In the issue list you can also pick any Redmine status directly.</p></div>
             <div id="rmOut"></div>
           </div>
           <div class="card">
-            <div class="card-body tight"><h2>When the developer changes the status in Redmine</h2><p class="muted">What it means here. "Get updates from Redmine" in the toolbar applies these.</p></div>
+            <div class="card-body tight"><h2>How each Redmine status counts here</h2><p class="muted">The issue list always shows the real Redmine status. This decides which tab and filter it falls under and how it counts in round stats. Statuses refresh from Redmine when you open the issues panel.</p></div>
             <div id="rmIn"></div>
           </div>
           <div class="card">
@@ -162,6 +162,7 @@
 
   <script src="lib/util.js"></script>
   <script src="lib/db.js"></script>
+  <script src="lib/redmine.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

@@ -320,14 +320,14 @@
   }
 
   // ---------- Redmine ----------
+  // Every Redmine status counts in exactly one of these buckets (no "ignore": the list always mirrors Redmine).
   const MEANINGS = [
-    { value: '', label: 'Ignore' },
-    { value: 'fixed', label: 'Fixed — retest it' },
-    { value: 'partially-fixed', label: 'Partly fixed — retest it' },
-    { value: 'unresolved', label: "Couldn't fix" },
-    { value: 'closed', label: 'Closed' },
-    { value: 'reopened', label: 'Reopened' },
-    { value: 'open', label: 'Open' },
+    { value: 'open', label: 'Open', sub: 'with the developer' },
+    { value: 'reopened', label: 'Reopened', sub: 'failed retest' },
+    { value: 'fixed', label: 'Fixed', sub: 'Retest tab' },
+    { value: 'partially-fixed', label: 'Partly fixed', sub: 'Retest tab' },
+    { value: 'unresolved', label: "Couldn't fix / rejected", sub: 'Retest tab — review' },
+    { value: 'closed', label: 'Closed', sub: 'done' },
   ];
   const getRm = async () => (await db.getMeta('redmine')) || {};
   let rmSavedTimer = 0;
@@ -466,7 +466,7 @@
     for (const st of c.statuses || [])
       vselect($('rmi-' + st.id), {
         options: MEANINGS,
-        value: (c.statusIn || {})[st.id] || '',
+        value: (c.statusIn || {})[st.id] || K.redmine.defaultCategory(st),
         onChange: async (v) => saveRm({ statusIn: { ...((await getRm()).statusIn || {}), [st.id]: v } }),
       });
 
@@ -535,7 +535,7 @@
         priorities: r.meta.priorities,
         // keep the tester's choices; fill in defaults only where nothing was chosen yet
         statusOut: first ? r.defaults.statusOut : { ...r.defaults.statusOut, ...(cur.statusOut || {}) },
-        statusIn: first ? r.defaults.statusIn : { ...r.defaults.statusIn, ...(cur.statusIn || {}) },
+        statusIn: first ? r.defaults.statusIn : { ...r.defaults.statusIn, ...Object.fromEntries(Object.entries(cur.statusIn || {}).filter(([, v]) => v)) },
         priority: first ? r.defaults.priority : { ...r.defaults.priority, ...(cur.priority || {}) },
         testedAt: K.isoLocal(),
       });

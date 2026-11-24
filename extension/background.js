@@ -68,7 +68,9 @@ const summary = (i) => {
     tag: i.element ? i.element.tag : null,
     dev: r ? { status: r.status || '', note: [r.notes, r.verification, r.rootCause].filter(Boolean)[0] || '' } : null,
     reopenCount: (i.history || []).filter((h) => h && h.reopenedAt).length, // only the tester's reopens, not the dev's log
-    redmine: i.redmine ? { id: i.redmine.id || null, url: i.redmine.url || '', error: i.redmine.error || null } : null,
+    redmine: i.redmine
+      ? { id: i.redmine.id || null, url: i.redmine.url || '', error: i.redmine.error || null, statusId: i.redmine.statusId || i.redmine.lastStatusId || null, statusName: i.redmine.statusName || i.redmine.remoteStatus || '', accepted: !!(i.redmine.acceptedStatusId && i.redmine.acceptedStatusId === (i.redmine.statusId || i.redmine.lastStatusId)) }
+      : null,
     resolution: r, // the developer's full result — the toolbar turns it into a retest checklist
     createdAt: i.createdAt || '',
     updatedAt: i.updatedAt || i.createdAt || '',
@@ -99,7 +101,14 @@ async function redmineState() {
   if (!cfg) return { configured: false };
   const pid = await K.db.getActiveProjectId();
   const p = (await K.db.getProjects()).find((x) => x.id === pid);
-  return { configured: true, linked: !!(p && p.redmine && p.redmine.projectId), url: RM.base(cfg.url) };
+  return {
+    configured: true,
+    linked: !!(p && p.redmine && p.redmine.projectId),
+    url: RM.base(cfg.url),
+    syncStatus: cfg.syncStatus !== false,
+    // Every Redmine status with the bucket it counts in here — the toolbar's status menu.
+    statuses: (cfg.statuses || []).map((s) => ({ id: s.id, name: s.name, isClosed: !!s.isClosed, category: RM.categoryOf(cfg, s.id) })),
+  };
 }
 
 /** Numbers for the round in progress of the active project (shown in the toolbar). */
@@ -202,41 +211,93 @@ async function rmPush(issue) {
   if (link.severityField && link.severityField.id && sevVal) payload.custom_fields = [{ id: link.severityField.id, value: sevVal }];
   if (link.assigneeId) payload.assigned_to_id = link.assigneeId;
   const created = await RM.createIssue(cfg, payload);
-  issue.redmine = { id: created.id, url: RM.issueUrl(cfg, created.id), lastStatusId: (created.status && created.status.id) || null, syncedAt: K.isoLocal(), error: null };
+  const st = created.status || {};
+  issue.redmine = { id: created.id, url: RM.issueUrl(cfg, created.id), statusId: st.id || null, statusName: st.name || '', lastStatusId: st.id || null, syncedAt: K.isoLocal(), error: null };
   return { created: created.id };
 }
 
-/** Mirror a status change into Redmine, with the tester's note as a comment. Returns a warning or null. */
-async function rmStatus(issue, status, note) {
-  const cfg = await rmConfig();
-  if (!cfg || cfg.syncStatus === false || !issue.redmine || !issue.redmine.id) return null;
-  const sid = cfg.statusOut && cfg.statusOut[status];
-  const notes =
-    status === 'reopened'
-      ? `Reopened after retest (KHDA Visual QA):\n${note || ''}`.trim()
-      : status === 'closed'
-        ? 'Verified by the tester and closed (KHDA Visual QA).'
-        : `Status set to "${K.STATUS_LABEL[status] || status}" in KHDA Visual QA.`;
-  const payload = { notes };
-  if (sid) payload.status_id = sid;
-  await RM.updateIssue(cfg, issue.redmine.id, payload);
-  issue.redmine = { ...issue.redmine, syncedAt: K.isoLocal(), error: null };
-  if (!sid) return null;
-  // Redmine silently ignores a status its workflow does not allow — check what actually happened.
-  const [now] = await RM.issuesStatus(cfg, [issue.redmine.id]);
-  const got = now && now.status;
-  issue.redmine.lastStatusId = got ? got.id : sid;
-  if (got && got.id !== sid) {
-    const want = ((cfg.statuses || []).find((x) => x.id === sid) || {}).name || sid;
-    return `Redmine #${issue.redmine.id}: your note was added, but its workflow kept the status "${got.name}" instead of "${want}".`;
+/** Bucket of the issue's current Redmine status. A status the tester accepted (e.g. Rejected) counts as closed. */
+function rmCategory(cfg, issue) {
+  const rm = issue.redmine || {};
+  const sid = rm.statusId || rm.lastStatusId;
+  if (!sid) return K.normStatus(issue.status);
+  if (rm.acceptedStatusId && rm.acceptedStatusId === sid) return 'closed';
+  return RM.categoryOf(cfg, sid);
+}
+const rmStatusName = (cfg, id) => ((cfg.statuses || []).find((x) => x.id === id) || {}).name || `status ${id}`;
+
+/** Move the issue into a bucket (status, history, retest result, round events). Returns true when it changed. */
+async function applyCategory(issue, cat, { note = '', statusName = '', source = 'tester', at = '' } = {}) {
+  const local = K.normStatus(issue.status);
+  if (cat === local) return false;
+  const pid = K.db.projectOf(issue);
+  if (cat === 'reopened') {
+    // Keep the developer's previous attempt + the reason, so the next fix sees both.
+    issue.history = [...(issue.history || []), { ...(issue.resolution || {}), reopenedAt: K.isoLocal(), reopenNote: String(note || '').trim() }];
+    issue.resolution = null;
+  } else if (K.RETEST.includes(cat)) {
+    const prev = issue.resolution && issue.resolution.source !== 'redmine' && !note ? issue.resolution : null;
+    issue.resolution = prev
+      ? { ...prev, status: cat, redmineStatus: statusName || prev.redmineStatus }
+      : { status: cat, notes: note || (statusName ? `Redmine status: ${statusName}` : ''), resolvedAt: at || K.isoLocal(), source: 'redmine', redmineStatus: statusName };
   }
+  const type = K.RETEST.includes(cat) ? 'devResult' : cat === 'closed' || cat === 'reopened' ? cat : 'status';
+  await K.db.logEvent(pid, type, issue.id, { to: cat, from: local });
+  issue.status = cat;
+  issue.statusFrom = source;
+  issue.updatedAt = K.isoLocal();
+  return true;
+}
+
+/**
+ * Change the status in Redmine FIRST, then read back what Redmine really has and mirror that here.
+ * `redmineStatusId` = a status picked from the Redmine list; otherwise `status` (closed / reopened / open)
+ * goes through the Settings mapping. Throws (and changes nothing here) when Redmine refuses the request.
+ */
+async function rmSetStatus(cfg, issue, { status, redmineStatusId, note }) {
+  const rid = issue.redmine.id;
+  const curId = issue.redmine.statusId || issue.redmine.lastStatusId || null;
+  const cur = (cfg.statuses || []).find((x) => x.id === curId);
+  // Closing an issue whose Redmine status is already a closed one (Rejected, Out of Scope…) = the tester accepts it.
+  const acceptOnly = !redmineStatusId && status === 'closed' && !!(cur && cur.isClosed);
+  const sid = redmineStatusId ? Number(redmineStatusId) : acceptOnly ? curId : (cfg.statusOut || {})[status] || null;
+  if (!sid) throw new Error(`No Redmine status is chosen for "${K.STATUS_LABEL[status] || status}" — pick one in Settings → Redmine.`);
+  const want = acceptOnly ? 'closed' : RM.categoryOf(cfg, sid);
+  const name = rmStatusName(cfg, sid);
+  const notes =
+    want === 'reopened'
+      ? `Reopened after retest (KHDA Visual QA):\n${note || ''}`.trim()
+      : acceptOnly
+        ? `Accepted by the tester as "${name}" (KHDA Visual QA).`
+        : want === 'closed'
+          ? 'Verified by the tester and closed (KHDA Visual QA).'
+          : `Status changed to "${name}" from KHDA Visual QA.${note ? `\n${note}` : ''}`;
+  const payload = { notes };
+  if (sid !== curId) payload.status_id = sid;
+  await RM.updateIssue(cfg, rid, payload); // throws → nothing changes here
+  // Redmine silently ignores a status its workflow does not allow — read back what it really has.
+  let got = null;
+  try {
+    const [now] = await RM.issuesStatus(cfg, [rid]);
+    got = now && now.status;
+  } catch {
+    /* fall back to what we asked for */
+  }
+  if (!got) got = { id: payload.status_id || curId, name: rmStatusName(cfg, payload.status_id || curId) };
+  issue.redmine = { ...issue.redmine, statusId: got.id, statusName: got.name, lastStatusId: got.id, acceptedStatusId: acceptOnly && got.id === sid ? sid : null, syncedAt: K.isoLocal(), error: null };
+  await applyCategory(issue, rmCategory(cfg, issue), { note, statusName: got.name, source: 'tester' });
+  if (payload.status_id && got.id !== sid)
+    return `Redmine #${rid} kept the status "${got.name}" — its workflow does not allow "${name}" from there. Your comment was added.`;
   return null;
 }
 
-/** Pull statuses the developers set in Redmine (+ their latest comment) into the extension. */
-async function rmPull(pid) {
+/** Read the Redmine status of every linked issue and mirror it here (Redmine is the source of truth). */
+const lastPull = new Map();
+async function rmPull(pid, { auto = false } = {}) {
   const cfg = await rmConfig();
   if (!cfg) throw new Error('Redmine is not set up — add it in Settings → Redmine.');
+  if (auto && Date.now() - (lastPull.get(pid) || 0) < 120000) return { checked: 0, updated: 0, changes: [], skipped: true };
+  lastPull.set(pid, Date.now());
   const linked = (await K.db.getAllIssues()).filter((i) => K.db.projectOf(i) === pid && i.redmine && i.redmine.id);
   if (!linked.length) return { checked: 0, updated: 0, changes: [] };
   const remote = await RM.issuesStatus(cfg, linked.map((i) => i.redmine.id));
@@ -246,31 +307,32 @@ async function rmPull(pid) {
   for (const issue of linked) {
     const r = byId.get(issue.redmine.id);
     if (!r || !r.status) continue;
-    const seen = issue.redmine.lastStatusId;
-    issue.redmine = { ...issue.redmine, lastStatusId: r.status.id, remoteStatus: r.status.name, syncedAt: K.isoLocal() };
-    const meaning = (cfg.statusIn || {})[r.status.id] || '';
-    const local = K.normStatus(issue.status);
-    if (r.status.id === seen || !meaning || meaning === local) {
-      await K.db.putIssue(issue);
+    const before = JSON.stringify(issue.redmine);
+    const prevId = issue.redmine.statusId || issue.redmine.lastStatusId || null;
+    const accepted = issue.redmine.acceptedStatusId === r.status.id ? r.status.id : null;
+    issue.redmine = { ...issue.redmine, statusId: r.status.id, statusName: r.status.name, lastStatusId: r.status.id, acceptedStatusId: accepted, remoteStatus: undefined };
+    const cat = rmCategory(cfg, issue);
+    const from = K.normStatus(issue.status);
+    // A result imported from the developer's file stays until Redmine's status itself moves on.
+    if (cat === from || (issue.statusFrom === 'import' && r.status.id === prevId)) {
+      if (JSON.stringify(issue.redmine) !== before) await K.db.putIssue(issue);
       continue;
     }
     // Latest comment written by someone other than me = the developer's note.
     let devNote = '';
-    try {
-      const journals = await RM.issueJournals(cfg, issue.redmine.id);
-      const j = [...journals].reverse().find((x) => x.notes && String(x.notes).trim() && (!me || !x.user || x.user.id !== me));
-      devNote = j ? String(j.notes).trim() : '';
-    } catch {
-      /* comments are a bonus; the status still syncs */
+    if (K.RETEST.includes(cat) || cat === 'reopened') {
+      try {
+        const journals = await RM.issueJournals(cfg, issue.redmine.id);
+        const j = [...journals].reverse().find((x) => x.notes && String(x.notes).trim() && (!me || !x.user || x.user.id !== me));
+        devNote = j ? String(j.notes).trim() : '';
+      } catch {
+        /* comments are a bonus; the status still syncs */
+      }
     }
-    if (K.RETEST.includes(meaning)) {
-      issue.resolution = { status: meaning, notes: devNote || `Redmine status: ${r.status.name}`, resolvedAt: r.updated_on || K.isoLocal(), source: 'redmine', redmineStatus: r.status.name };
-      await K.db.logEvent(pid, 'devResult', issue.id, { to: meaning });
-    } else if (meaning === 'closed' || meaning === 'reopened') await K.db.logEvent(pid, meaning, issue.id, { to: meaning });
-    issue.status = meaning;
-    issue.updatedAt = K.isoLocal();
+    issue.redmine.syncedAt = K.isoLocal();
+    await applyCategory(issue, cat, { note: devNote, statusName: r.status.name, source: 'redmine', at: r.updated_on });
     await K.db.putIssue(issue);
-    changes.push({ id: issue.id, redmine: issue.redmine.id, to: meaning, from: local });
+    changes.push({ id: issue.id, redmine: issue.redmine.id, to: cat, from, redmineStatus: r.status.name });
   }
   return { checked: linked.length, updated: changes.length, changes };
 }
@@ -418,29 +480,27 @@ const handlers = {
     return true;
   },
 
-  async setStatus({ id, status, note }) {
+  /** Issues in Redmine: Redmine is changed first and its real status is mirrored here (throws if Redmine refuses).
+   *  Other issues: changed here only. */
+  async setStatus({ id, status, note, redmineStatusId }) {
     const issue = await K.db.getIssue(id);
     if (!issue) throw new Error(`${id} not found`);
     status = K.normStatus(status);
-    if (status === 'reopened') {
-      // Keep the developer's previous attempt + the tester's reason, so the next fix sees both.
-      issue.history = [...(issue.history || []), { ...(issue.resolution || {}), reopenedAt: K.isoLocal(), reopenNote: (note || '').trim() }];
-      issue.resolution = null;
+    const cfg = await rmConfig();
+    if (cfg && cfg.syncStatus !== false && issue.redmine && issue.redmine.id) {
+      let warning;
+      try {
+        warning = await rmSetStatus(cfg, issue, { status, redmineStatusId, note });
+      } catch (e) {
+        throw new Error(`Not changed — Redmine #${issue.redmine.id} could not be updated: ${e.message}`);
+      }
+      await K.db.putIssue(issue);
+      return { warning, status: issue.status, redmineStatus: issue.redmine.statusName };
     }
-    if (status !== K.normStatus(issue.status))
-      await K.db.logEvent(K.db.projectOf(issue), status === 'closed' || status === 'reopened' ? status : 'status', id, { to: status });
-    issue.status = status;
-    issue.updatedAt = K.isoLocal();
+    if (redmineStatusId) throw new Error('This issue is not in Redmine yet — send it first (Redmine ▾ → Send).');
+    await applyCategory(issue, status, { note });
     await K.db.putIssue(issue);
-    let warning = null;
-    try {
-      warning = await rmStatus(issue, status, note);
-    } catch (e) {
-      issue.redmine = { ...(issue.redmine || {}), error: e.message };
-      warning = `Saved here, but Redmine was not updated: ${e.message}`;
-    }
-    if (issue.redmine) await K.db.putIssue(issue);
-    return { warning };
+    return { warning: null, status: issue.status };
   },
 
   // ---- Redmine (settings page + toolbar) ----
@@ -494,8 +554,8 @@ const handlers = {
     }
     return { sent, failed };
   },
-  async redminePull({ projectId }) {
-    return rmPull(projectId || (await K.db.getActiveProjectId()));
+  async redminePull({ projectId, auto }) {
+    return rmPull(projectId || (await K.db.getActiveProjectId()), { auto: !!auto });
   },
 
   async importJson({ text }) {
@@ -513,7 +573,10 @@ const handlers = {
       // The developer's answer counts once per issue per round (re-importing the same file doesn't double it).
       if (to && K.RETEST.includes(to) && (to !== K.normStatus(issue.status) || JSON.stringify(x.resolution || null) !== JSON.stringify(issue.resolution || null)))
         await K.db.logEvent(K.db.projectOf(issue), 'devResult', issue.id, { to });
-      if (to) issue.status = to;
+      if (to) {
+        issue.status = to;
+        issue.statusFrom = 'import'; // the developer's file — a later Redmine pull keeps it until Redmine itself changes
+      }
       if (x.resolution !== undefined) issue.resolution = x.resolution;
       if (Array.isArray(x.history)) issue.history = x.history;
       issue.updatedAt = K.isoLocal();

@@ -1342,9 +1342,20 @@
       ? `<a class="go" href="${esc(url)}" title="Go to the page: ${esc(pageKey(i))}" aria-label="Go to the page ${esc(pageKey(i))}">${ICON.go}</a>`
       : `<span class="go off" title="The page address was not recorded for this issue">${ICON.go}</span>`;
   };
+  /** Redmine-linked issues show Redmine's own status name; the colour is the bucket it counts in here. */
+  const usesRedmine = (i) => !!(i.redmine && i.redmine.id && state.redmine && state.redmine.configured && state.redmine.syncStatus !== false);
+  const rmStatusOf = (i) => ((state.redmine && state.redmine.statuses) || []).find((s) => s.id === i.redmine.statusId);
+  // The Redmine name, unless a developer's imported result is newer than Redmine (then the bucket name).
+  const stLabel = (i) => {
+    if (!usesRedmine(i) || !i.redmine.statusName) return K.STATUS_LABEL[i.status];
+    const s = rmStatusOf(i);
+    return !s || s.category === i.status || i.redmine.accepted ? i.redmine.statusName : K.STATUS_LABEL[i.status];
+  };
   /** Status pill — opens the custom status menu (one click + one pick). */
-  const statusPill = (i) =>
-    `<button class="st st-${esc(i.status)}" data-menu="status" data-id="${esc(i.id)}" aria-haspopup="listbox" title="Change status">${esc(K.STATUS_LABEL[i.status])}${ICON.chev}</button>`;
+  const statusPill = (i) => {
+    const tip = usesRedmine(i) ? `Redmine #${i.redmine.id}: ${i.redmine.statusName || '?'} · counts as ${K.STATUS_LABEL[i.status]} — click to change` : 'Change status';
+    return `<button class="st st-${esc(i.status)}" data-menu="status" data-id="${esc(i.id)}" aria-haspopup="listbox" title="${esc(tip)}"><span class="stl">${esc(stLabel(i))}</span>${ICON.chev}</button>`;
+  };
 
   /** "#123" link to the Redmine issue (opens in a new tab), or a warning when the last sync failed. */
   const rmBadge = (i) =>
@@ -1405,7 +1416,7 @@
         <button class="it" data-detail="${esc(i.id)}" title="Review the fix">${esc(i.title)}</button>
         ${goLink(i)}
       </div>
-      <button class="dnote" data-detail="${esc(i.id)}"><b>${esc(K.STATUS_LABEL[i.status])}</b>${sum ? ` — ${sum}` : ''}${i.reopenCount ? ` <span class="muted">· reopened ${i.reopenCount}×</span>` : ''}<span class="more">Review ›</span></button>
+      <button class="dnote" data-detail="${esc(i.id)}"><b>${esc(stLabel(i))}</b>${sum ? ` — ${sum}` : ''}${i.reopenCount ? ` <span class="muted">· reopened ${i.reopenCount}×</span>` : ''}<span class="more">Review ›</span></button>
       <div class="ract">
         <button class="btn sm" data-set="reopened" data-id="${esc(i.id)}">${ICON.undo} Reopen</button>
         <button class="btn sm primary" data-set="closed" data-id="${esc(i.id)}">${ICON.check} Close</button>
@@ -1463,7 +1474,7 @@
       </div>
       <div class="pb dbody">
         <div class="dtitle">${esc(i.title)}</div>
-        <div class="dmeta"><span class="st st-${esc(i.status)}">${esc(K.STATUS_LABEL[i.status])}</span>${r.level ? `<span>fixed at ${esc(r.level)} level</span>` : ''}${r.at ? `<span>${esc(String(r.at).slice(0, 10))}</span>` : ''}${i.reopenCount ? `<span>reopened ${i.reopenCount}×</span>` : ''}</div>
+        <div class="dmeta"><span class="st st-${esc(i.status)}">${esc(stLabel(i))}</span>${r.level ? `<span>fixed at ${esc(r.level)} level</span>` : ''}${r.at ? `<span>${esc(String(r.at).slice(0, 10))}</span>` : ''}${i.reopenCount ? `<span>reopened ${i.reopenCount}×</span>` : ''}</div>
         <div class="dsec"><div class="dst">Check these${checkable.length ? ` <span class="muted">${done}/${checkable.length}</span>` : ''}</div>${items}</div>
         ${pages.length ? `<div class="dsec"><div class="dst">Where to check</div><div class="pchips">${pages.map((pg, n) => pageChip(pg, n === 0 && own.length ? `${pg} · reported here` : pg)).join('')}</div></div>` : ''}
         ${tech.length ? `<details class="dtech"><summary>Developer notes</summary>${tech.map(([k, v]) => `<div class="tr"><div class="tk">${k}</div><div class="tv">${v}</div></div>`).join('')}</details>` : ''}
@@ -1603,7 +1614,7 @@
   }
 
   /** Change status; reopening always asks for a note. Returns false if the user cancelled. */
-  async function setStatus(id, status) {
+  async function setStatus(id, status, redmineStatusId) {
     let note = null;
     if (status === 'reopened') {
       const it = state.issues.find((x) => x.id === id);
@@ -1613,8 +1624,12 @@
         return false;
       }
     }
-    const r = await send('setStatus', { id, status, note });
-    await refresh();
+    let r;
+    try {
+      r = await send('setStatus', { id, status, note, redmineStatusId: redmineStatusId || null });
+    } finally {
+      await refresh(); // the pill always shows what is really saved (and what Redmine really has)
+    }
     if (r && r.warning) {
       toast(r.warning, 'err', 9000);
       return 'warned';
@@ -1712,6 +1727,29 @@
     const id = anchor.dataset.id;
     const it = state.issues.find((x) => x.id === id);
     if (!it) return;
+    const rmStatuses = (state.redmine && state.redmine.statuses) || [];
+    if (usesRedmine(it) && rmStatuses.length) {
+      // Redmine is the source of truth: pick a real Redmine status; it is changed there first.
+      const cur = it.redmine.statusId;
+      return openMenu(
+        anchor,
+        [
+          { heading: `Redmine #${it.redmine.id}` },
+          ...rmStatuses.map((s) => ({ value: s.id, label: s.name, sub: K.STATUS_LABEL[s.category], dot: STATUS_DOT[s.category], checked: s.id === cur, s })),
+        ],
+        async (pick) => {
+          if (!pick.s || pick.s.id === cur) return;
+          toast(`Updating Redmine #${it.redmine.id}…`, '', 30000);
+          try {
+            const r = await setStatus(id, pick.s.category, pick.s.id);
+            if (r === true) toast(`Redmine #${it.redmine.id}: ${pick.s.name}`);
+            else if (r === false) toast('Not changed');
+          } catch (err) {
+            toast(err.message, 'err', 9000);
+          }
+        }
+      );
+    }
     openMenu(
       anchor,
       K.STATUSES.map((x) => ({ value: x, label: K.STATUS_LABEL[x], dot: STATUS_DOT[x], checked: x === it.status })),
@@ -1933,7 +1971,22 @@
     saveUi();
     if (show) {
       renderList();
-      refresh();
+      refresh().then(autoPull);
+    }
+  }
+
+  /** Keep Redmine statuses fresh: quietly re-read them when the panel opens (at most every 2 minutes). */
+  async function autoPull() {
+    const rm = state.redmine || {};
+    if (!rm.linked || !state.issues.some((i) => i.redmine && i.redmine.id)) return;
+    try {
+      const r = await send('redminePull', { projectId: state.activeProject, auto: true });
+      if (r && r.updated) {
+        await refresh();
+        toast(`${r.updated} status${r.updated === 1 ? '' : 'es'} changed in Redmine${r.changes.some((c) => ['fixed', 'partially-fixed', 'unresolved'].includes(c.to)) ? ' — see Retest' : ''}`, '', 6000);
+      }
+    } catch {
+      /* offline or Redmine down — the list still works; "Get updates" shows the error */
     }
   }
 

@@ -186,6 +186,26 @@
     }
     return null;
   };
+  /** Which bucket a Redmine status counts in here (filters, Retest, round stats). Every status gets one.
+   *  open = with the developer · fixed / partially-fixed / unresolved = back to the tester to retest or review
+   *  reopened = failed retest · closed = done. */
+  R.defaultCategory = (s) => {
+    const n = String((s && s.name) || '');
+    if (/re-?open|fail/i.test(n)) return 'reopened';
+    if (/partial/i.test(n)) return 'partially-fixed';
+    if (/reject|out of scope|duplicate|won.?t|cannot|can.?t fix|not a bug|enhancement|feedback/i.test(n)) return 'unresolved';
+    if (/passed|verified|^closed|closed at|^done$/i.test(n)) return 'closed';
+    if (/dev fixed|resolved|fixed|ready for|testing|untested|moved to uat|^qa$/i.test(n)) return 'fixed';
+    return s && s.isClosed ? 'closed' : 'open';
+  };
+  /** Bucket for a status id, using the tester's mapping first. */
+  R.categoryOf = (cfg, statusId) => {
+    const m = cfg && cfg.statusIn && cfg.statusIn[statusId];
+    if (m) return m;
+    const s = ((cfg && cfg.statuses) || []).find((x) => x.id === statusId);
+    return R.defaultCategory(s || { name: '', isClosed: false });
+  };
+
   R.defaultMappings = (meta) => {
     const S = meta.statuses || [];
     const P = meta.priorities || [];
@@ -196,12 +216,7 @@
       closed: find(S, /^closed$/i, /^done$/i, /verified/i) || (S.find((s) => s.isClosed) || {}).id || null,
     };
     const statusIn = {};
-    for (const s of S) {
-      if (/resolved|fixed|ready for (qa|test)|^qa$|testing|done/i.test(s.name)) statusIn[s.id] = 'fixed';
-      else if (/reject|won.?t fix|cannot|can.?t|not a bug|duplicate|out of scope/i.test(s.name)) statusIn[s.id] = 'unresolved';
-      else if (/partial/i.test(s.name)) statusIn[s.id] = 'partially-fixed';
-      else statusIn[s.id] = ''; // ignore (New, In Progress, Feedback, Closed set by us…)
-    }
+    for (const s of S) statusIn[s.id] = R.defaultCategory(s);
     const priority = {
       critical: find(P, /urgent/i, /immediate/i, /critical/i, /highest/i),
       high: find(P, /^high$/i, /high/i),
