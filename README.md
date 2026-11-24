@@ -41,6 +41,10 @@ Your issues stay in your own browser. Nothing is uploaded unless you export it o
    **Select Folder**. (Don't select the ZIP file, or a folder that only has another folder inside.)
 5. **KHDA Visual QA** now appears in the list. ✅
 
+> 📦 **Downloaded with GitHub's green "Code → Download ZIP" button instead?** That ZIP contains
+> the whole project. Select the **`extension`** folder inside it:
+> `UX-Testing-Extension-main\extension`.
+
 > ❓ **"Manifest file is missing or unreadable"?** You selected one folder too high. Windows often
 > puts the files in an extra folder, like `KHDA Visual QA\khda-visual-qa\`. Click **Load unpacked**
 > again and select the inner folder, the one with `manifest.json` in it.
