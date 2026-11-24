@@ -291,6 +291,58 @@ async function rmSetStatus(cfg, issue, { status, redmineStatusId, note }) {
   return null;
 }
 
+/** Redmine status for a bucket: the Settings choice (Open / Reopened / Closed), else the first Redmine status counted in it. */
+function rmTargetStatus(cfg, bucket) {
+  const out = (cfg.statusOut || {})[bucket];
+  if (out) return out;
+  const s = (cfg.statuses || []).find((x) => RM.categoryOf(cfg, x.id) === bucket);
+  if (!s && bucket === 'partially-fixed') return rmTargetStatus(cfg, 'fixed'); // most trackers have no 'partly fixed'
+  return s ? s.id : null;
+}
+
+/**
+ * Right after an existing issue is created in Redmine (as New): move it to the Redmine status that
+ * matches its status here (Reopen, Dev Fixed, Closed…), with a comment. If the Redmine workflow refuses,
+ * the status here is kept (not overwritten by the next refresh) and the mismatch is returned.
+ */
+let pushing = false;
+async function rmInitialStatus(cfg, issue) {
+  const bucket = K.normStatus(issue.status);
+  const sid = rmTargetStatus(cfg, bucket);
+  const cur = issue.redmine.statusId || issue.redmine.lastStatusId || null;
+  const fits = (id) => id && (RM.categoryOf(cfg, id) === bucket || (bucket === 'partially-fixed' && RM.categoryOf(cfg, id) === 'fixed'));
+  if (cur && fits(cur)) return null;
+  if (!sid || sid === cur) {
+    issue.statusFrom = 'kept'; // no Redmine status for it — keep the status here
+    return null;
+  }
+  issue.statusFrom = 'kept'; // until Redmine confirms, the next refresh must not overwrite the status here
+  const last = (issue.history || []).filter((h) => h && h.reopenedAt).pop();
+  const r = issue.resolution || {};
+  const devNote = String(r.notes || r.rootCause || r.verification || '').trim().slice(0, 800);
+  const notes =
+    bucket === 'reopened'
+      ? `Reopened after retest (KHDA Visual QA):\n${(last && last.reopenNote) || ''}`.trim()
+      : bucket === 'closed'
+        ? 'Already verified and closed in KHDA Visual QA before it was sent to Redmine.'
+        : `Already marked "${K.STATUS_LABEL[bucket]}" in KHDA Visual QA before it was sent to Redmine.${devNote ? `\nDeveloper's note: ${devNote}` : ''}`;
+  await RM.updateIssue(cfg, issue.redmine.id, { status_id: sid, notes });
+  let got = null;
+  try {
+    const [now] = await RM.issuesStatus(cfg, [issue.redmine.id]);
+    got = now && now.status;
+  } catch {
+    /* assume it was applied */
+  }
+  if (!got) got = { id: sid, name: rmStatusName(cfg, sid) };
+  issue.redmine = { ...issue.redmine, statusId: got.id, statusName: got.name, lastStatusId: got.id, syncedAt: K.isoLocal() };
+  if (fits(got.id)) {
+    issue.statusFrom = RM.categoryOf(cfg, got.id) === bucket ? 'redmine' : 'kept';
+    return null;
+  }
+  return { id: issue.id, redmine: issue.redmine.id, wanted: rmStatusName(cfg, sid), got: got.name };
+}
+
 /** Read the Redmine status of every linked issue and mirror it here (Redmine is the source of truth). */
 const lastPull = new Map();
 async function rmPull(pid, { auto = false } = {}) {
@@ -314,7 +366,7 @@ async function rmPull(pid, { auto = false } = {}) {
     const cat = rmCategory(cfg, issue);
     const from = K.normStatus(issue.status);
     // A result imported from the developer's file stays until Redmine's status itself moves on.
-    if (cat === from || (issue.statusFrom === 'import' && r.status.id === prevId)) {
+    if (cat === from || ((issue.statusFrom === 'import' || issue.statusFrom === 'kept') && r.status.id === prevId)) {
       if (JSON.stringify(issue.redmine) !== before) await K.db.putIssue(issue);
       continue;
     }
@@ -459,6 +511,10 @@ const handlers = {
     if (cfg && cfg.syncOnSave !== false && (await rmLink(issue))) {
       try {
         redmine = await rmPush(issue);
+        if (redmine && redmine.created) {
+          const k = await rmInitialStatus(cfg, issue);
+          if (k) redmine.kept = k;
+        }
       } catch (e) {
         issue.redmine = { ...(issue.redmine || {}), error: e.message };
         redmine = { error: e.message };
@@ -526,6 +582,10 @@ const handlers = {
     if (!(await rmLink(issue))) throw new Error('This project is not linked to a Redmine project yet (Settings → Redmine).');
     try {
       const r = await rmPush(issue);
+      if (r && r.created) {
+        const k = await rmInitialStatus(await rmConfig(), issue);
+        if (k) r.kept = k;
+      }
       await K.db.putIssue(issue);
       return { ...r, url: issue.redmine && issue.redmine.url };
     } catch (e) {
@@ -534,25 +594,61 @@ const handlers = {
       throw e;
     }
   },
-  /** Send every open/reopened issue of the project that is not in Redmine yet. */
-  async redminePushAll({ projectId }) {
+  /** What "Send to Redmine" would do: every issue of the project not in Redmine yet, with the Redmine status it will get. */
+  async redminePushPlan({ projectId }) {
     const pid = projectId || (await K.db.getActiveProjectId());
-    if (!(await rmConfig())) throw new Error('Redmine is not set up — add it in Settings → Redmine.');
-    const todo = (await K.db.getAllIssues()).filter((i) => K.db.projectOf(i) === pid && K.exporter.isActive(i) && !(i.redmine && i.redmine.id));
+    const cfg = await rmConfig();
+    if (!cfg) throw new Error('Redmine is not set up — add it in Settings → Redmine.');
+    const project = (await K.db.getProjects()).find((p) => p.id === pid);
+    const link = project && project.redmine && project.redmine.projectId ? project.redmine : null;
+    const todo = (await K.db.getAllIssues()).filter((i) => K.db.projectOf(i) === pid && !(i.redmine && i.redmine.id));
+    const items = todo
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+      .map((i) => {
+        const bucket = K.normStatus(i.status);
+        const sid = rmTargetStatus(cfg, bucket);
+        return { id: i.id, title: i.title || K.titleFrom(i.description, i.element), status: bucket, severity: i.severity || 'medium', target: sid ? rmStatusName(cfg, sid) : null };
+      });
+    const sev = link && link.severityField && link.severityField.id;
+    return {
+      project: project ? project.name : '',
+      link: link ? { name: link.projectName || `#${link.projectId}`, tracker: link.trackerName || '', assignee: link.assigneeName || '', severityField: sev ? link.severityField.name || 'Severity' : '' } : null,
+      items,
+    };
+  },
+  /** Send issues of the project that are not in Redmine yet; each one gets the Redmine status matching its status here. */
+  async redminePushAll({ projectId, ids }) {
+    const pid = projectId || (await K.db.getActiveProjectId());
+    const cfg = await rmConfig();
+    if (!cfg) throw new Error('Redmine is not set up — add it in Settings → Redmine.');
+    if (pushing) throw new Error('Already sending to Redmine — wait for it to finish.');
+    const want = Array.isArray(ids) ? new Set(ids) : null;
+    const todo = (await K.db.getAllIssues())
+      .filter((i) => K.db.projectOf(i) === pid && !(i.redmine && i.redmine.id) && (want ? want.has(i.id) : K.exporter.isActive(i)))
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
     if (todo.length && !(await rmLink(todo[0]))) throw new Error('This project is not linked to a Redmine project yet (Settings → Redmine).');
+    pushing = true;
     let sent = 0;
     const failed = [];
-    for (const issue of todo) {
-      try {
-        await rmPush(issue);
-        sent++;
-      } catch (e) {
-        issue.redmine = { ...(issue.redmine || {}), error: e.message };
-        failed.push(`${issue.id}: ${e.message}`);
+    const kept = [];
+    try {
+      for (const issue of todo) {
+        try {
+          await rmPush(issue);
+          sent++;
+          const k = await rmInitialStatus(cfg, issue);
+          if (k) kept.push(k);
+        } catch (e) {
+          if (!(issue.redmine && issue.redmine.id)) issue.redmine = { ...(issue.redmine || {}), error: e.message };
+          else issue.redmine = { ...issue.redmine, error: `Created, but the status could not be set: ${e.message}` };
+          failed.push(`${issue.id}: ${e.message}`);
+        }
+        await K.db.putIssue(issue);
       }
-      await K.db.putIssue(issue);
+    } finally {
+      pushing = false;
     }
-    return { sent, failed };
+    return { sent, failed, kept };
   },
   async redminePull({ projectId, auto }) {
     return rmPull(projectId || (await K.db.getActiveProjectId()), { auto: !!auto });

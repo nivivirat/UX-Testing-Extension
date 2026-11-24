@@ -1571,6 +1571,77 @@
   let scrollResetPending = false;
 
   /** Small in-page dialog asking why an issue is reopened. Resolves to the note, or null if cancelled. */
+  /** Preview before sending issues to Redmine: which ones, and the Redmine status each will get. Resolves to ids or null. */
+  function askPushPlan(plan) {
+    return new Promise((resolve) => {
+      const d = $('dlg');
+      d.hidden = false;
+      const active = (x) => x.status === 'open' || x.status === 'reopened';
+      const L = plan.link;
+      const where = L
+        ? `${esc(L.name)}${L.tracker ? ` · ${esc(L.tracker)}` : ''}${L.assignee ? ` · assigned to ${esc(L.assignee)}` : ' · <b>no assignee</b>'}${L.severityField ? ` · ${esc(L.severityField)} set` : ''}`
+        : '';
+      const row = (x) => `<label class="pushrow">
+          <input type="checkbox" data-pid="${esc(x.id)}" ${active(x) ? 'checked' : ''}>
+          <span class="pt" title="${esc(x.title)}">${esc(x.title)}</span>
+          <span class="st st-${esc(x.status)}">${esc(K.STATUS_LABEL[x.status])}</span>
+          <span class="parrow">→</span>
+          <span class="pto${x.target ? '' : ' warn'}">${esc(x.target || 'no status set')}</span>
+        </label>`;
+      const others = plan.items.filter((x) => !active(x)).length;
+      d.innerHTML = `
+        <div class="dback"></div>
+        <div class="dbox wide" role="dialog" aria-modal="true" aria-label="Send to Redmine">
+          <div class="dt">Send to Redmine</div>
+          ${
+            !L
+              ? `<div class="dsub">“${esc(plan.project)}” is not linked to a Redmine project yet.</div>
+                 <div class="dact"><button class="btn ghost" data-d="cancel">Cancel</button><button class="btn primary" data-d="settings">Link it in Settings</button></div>`
+              : !plan.items.length
+                ? `<div class="dsub">Every issue of “${esc(plan.project)}” is already in Redmine.</div><div class="dact"><button class="btn primary" data-d="cancel">OK</button></div>`
+                : `<div class="dsub">${esc(plan.project)} → ${where}</div>
+                   ${others ? `<div class="ptools"><button class="lnk" data-d="all">Select all</button><button class="lnk" data-d="active">Only open &amp; reopened</button></div>` : ''}
+                   <div class="plist">${plan.items.map(row).join('')}</div>
+                   <div class="hint">Each issue is created with its screenshots, then moved to the Redmine status shown. If Redmine's workflow does not allow that status, it keeps Redmine's status and you'll be told which ones.</div>
+                   <div class="dact"><button class="btn ghost" data-d="cancel">Cancel</button><button class="btn primary" data-d="ok" id="pSend"></button></div>`
+          }
+        </div>`;
+      const boxes = () => [...d.querySelectorAll('[data-pid]')];
+      const count = () => {
+        const n = boxes().filter((b) => b.checked).length;
+        const btn = $('pSend');
+        if (btn) {
+          btn.textContent = n ? `Send ${n} issue${n === 1 ? '' : 's'}` : 'Select issues';
+          btn.disabled = !n;
+        }
+      };
+      count();
+      const done = (v) => {
+        d.hidden = true;
+        d.innerHTML = '';
+        resolve(v);
+      };
+      d.onchange = count;
+      d.onclick = (e) => {
+        const b = e.target.closest('[data-d]');
+        if (!b) return e.target.classList.contains('dback') && done(null);
+        const a = b.dataset.d;
+        if (a === 'all' || a === 'active') {
+          for (const x of boxes()) x.checked = a === 'all' || active(plan.items.find((i) => i.id === x.dataset.pid));
+          return count();
+        }
+        if (a === 'settings') {
+          send('openSettings', { section: 'redmine' }).catch(() => {});
+          return done(null);
+        }
+        if (a === 'ok') return done(boxes().filter((x) => x.checked).map((x) => x.dataset.pid));
+        done(null);
+      };
+      d.onkeydown = (e) => e.key === 'Escape' && done(null);
+      (d.querySelector('#pSend') || d.querySelector('[data-d]')).focus();
+    });
+  }
+
   function askReopenNote(issueTitle, prefill = '') {
     return new Promise((resolve) => {
       const d = $('dlg');
@@ -1766,11 +1837,11 @@
 
   function openRedmineMenu(anchor) {
     const rmState = state.redmine || {};
-    const unsent = state.issues.filter((i) => (i.status === 'open' || i.status === 'reopened') && !(i.redmine && i.redmine.id)).length;
+    const unsent = state.issues.filter((i) => !(i.redmine && i.redmine.id)).length;
     const items = rmState.linked
       ? [
           { value: 'pull', label: 'Get updates from Redmine' },
-          { value: 'push', label: unsent ? `Send ${unsent} issue${unsent === 1 ? '' : 's'} not in Redmine yet` : 'All open issues are in Redmine', sub: '' },
+          { value: 'push', label: unsent ? `Send to Redmine… (${unsent} not sent)` : 'All issues are in Redmine', sub: '' },
           { sep: true },
           { value: 'settings', label: 'Redmine settings' },
         ]
@@ -1780,10 +1851,19 @@
         if (pick.value === 'settings') return send('openSettings', { section: 'redmine' });
         if (pick.value === 'push') {
           if (!unsent) return;
-          toast(`Sending ${unsent} issue${unsent === 1 ? '' : 's'} to Redmine…`, '', 60000);
-          const r = await send('redminePushAll', { projectId: state.activeProject });
+          const plan = await send('redminePushPlan', { projectId: state.activeProject });
+          const ids = await askPushPlan(plan);
+          if (!ids || !ids.length) return;
+          toast(`Sending ${ids.length} issue${ids.length === 1 ? '' : 's'} to Redmine… keep this tab open`, '', 600000);
+          const r = await send('redminePushAll', { projectId: state.activeProject, ids });
           await refresh();
-          return toast(`${r.sent} sent to Redmine${r.failed.length ? ` · ${r.failed.length} failed: ${r.failed[0]}` : ''}`, r.failed.length ? 'err' : '', 9000);
+          const kept = r.kept || [];
+          const msg = [
+            `${r.sent} sent to Redmine`,
+            kept.length ? `${kept.length} kept Redmine's status (e.g. #${kept[0].redmine} is “${kept[0].got}”, not “${kept[0].wanted}”)` : '',
+            r.failed.length ? `${r.failed.length} failed: ${r.failed[0]}` : '',
+          ].filter(Boolean).join(' · ');
+          return toast(msg, r.failed.length || kept.length ? 'err' : '', 15000);
         }
         if (pick.value === 'pull') {
           toast('Getting updates from Redmine…', '', 60000);

@@ -343,6 +343,20 @@ details.dtech code { font-size: 11px; }
 .dt { font-weight: 600; font-size: 15px; letter-spacing: -0.015em; }
 .dsub { color: var(--gray9); font-size: 12.5px; margin-top: -6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbox textarea.inp { min-height: 96px; }
+.dbox.wide { width: min(560px, calc(100vw - 32px)); }
+.dbox.wide .dsub { white-space: normal; }
+.ptools { display: flex; gap: 14px; }
+.lnk { font-size: 12px; color: var(--blue); padding: 0; }
+.lnk:hover { text-decoration: underline; }
+.plist { max-height: min(320px, 45vh); overflow-y: auto; overflow-x: hidden; min-width: 0; border-radius: 8px; box-shadow: var(--ring); }
+.pushrow { width: 100%; min-width: 0; display: grid; grid-template-columns: 16px minmax(0,1fr) auto 12px minmax(0,118px); align-items: center; gap: 8px; padding: 8px 10px; font-size: 12.5px; cursor: pointer; }
+.pushrow + .pushrow { box-shadow: 0 -1px 0 var(--gray1); }
+.pushrow:hover { background: var(--bg2); }
+.pushrow .pt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pushrow .st { height: 22px; cursor: inherit; }
+.parrow { color: var(--gray9); }
+.pto { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pto.warn { color: var(--amber); font-weight: 400; }
 .derr { color: #C7262D; font-size: 12px; }
 .dact { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 

@@ -89,8 +89,11 @@ Status and priority mappings are pre-filled by name and can be changed.
   Redmine.
 - Statuses refresh from Redmine when you open the issues panel (at most every 2 minutes), or with
   **Redmine ▾ → Get updates from Redmine**; the developer's latest comment appears in Retest.
-- **Redmine ▾ → Send issues not in Redmine yet** retries anything that failed or was saved before
-  Redmine was set up.
+- **Redmine ▾ → Send to Redmine…** sends issues saved before Redmine was set up (or that failed).
+  A preview lists each issue with the Redmine status it will get (Open → *New*, Reopened → *Reopen*,
+  Fixed → *Dev Fixed*, Closed → *Closed*…); open and reopened ones are ticked by default. Each issue
+  is created, then moved to that status with a comment. If the Redmine workflow refuses a move, the
+  issue keeps its status here and you are told which ones.
 - Each row shows the Redmine number (`#123`), which opens the issue in Redmine.
 
 The API key is stored only in this browser. It is never exported, never put in backups, and is
