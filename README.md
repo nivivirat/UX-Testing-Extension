@@ -22,8 +22,11 @@ Your issues stay in your own browser. Nothing is uploaded unless you export it o
 **1. Download and unzip**
 
 - Click the **Download** button above. You get `khda-visual-qa.zip`.
-- Make a folder that you will **keep**, for example `Documents\KHDA Visual QA`.
-- Right-click the ZIP → **Extract All…** → choose that folder → **Extract**.
+- Right-click the ZIP → **Extract All…**
+- In the box, change the path to `C:\Users\<you>\Documents\khda-visual-qa` (any place you will
+  **keep**) → **Extract**.
+- Open the new folder. You should see `manifest.json` straight away, next to `background.js` and
+  the `content`, `icons` and `lib` folders. **This is the folder you'll select in step 2.**
 
 > ⚠️ Don't leave it in *Downloads* or delete the folder later. Chrome runs the extension from this
 > folder, and your issues are linked to it.
@@ -34,8 +37,13 @@ Your issues stay in your own browser. Nothing is uploaded unless you export it o
    (In Edge: `edge://extensions`.)
 2. Turn on **Developer mode** (switch at the top right; in Edge it's on the left).
 3. Click **Load unpacked**.
-4. Select the folder you extracted, the one that contains `manifest.json`, and click **Select Folder**.
+4. Go to the folder from step 1, **open it** so you can see `manifest.json` inside, then click
+   **Select Folder**. (Don't select the ZIP file, or a folder that only has another folder inside.)
 5. **KHDA Visual QA** now appears in the list. ✅
+
+> ❓ **"Manifest file is missing or unreadable"?** You selected one folder too high. Windows often
+> puts the files in an extra folder, like `KHDA Visual QA\khda-visual-qa\`. Click **Load unpacked**
+> again and select the inner folder, the one with `manifest.json` in it.
 
 **3. Pin it to the toolbar**
 
@@ -97,6 +105,7 @@ To see which version you have, look at `chrome://extensions` → KHDA Visual QA.
 
 | Problem | Fix |
 |---|---|
+| *"Manifest file is missing or unreadable"* | You picked the wrong folder. Select the folder that has `manifest.json` directly inside it, usually the inner `khda-visual-qa` folder. Not the ZIP. |
 | The toolbar doesn't appear | Refresh the page, then click the icon again. It can't run on `chrome://` pages or the Chrome Web Store. |
 | *"The extension needs a reload"* message | `chrome://extensions` → ↻ on KHDA Visual QA → refresh the page. |
 | Chrome shows a *"Disable developer mode extensions"* pop-up | Click **Cancel** (or close it). This is normal for extensions installed this way. |
