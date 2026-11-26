@@ -344,6 +344,10 @@ details.dtech code { font-size: 11px; }
 .dsub { color: var(--gray9); font-size: 12.5px; margin-top: -6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbox textarea.inp { min-height: 96px; }
 .dbox.wide { width: min(560px, calc(100vw - 32px)); }
+.mform .dest { font-size: 13px; color: var(--fg); padding: 7px 0; }
+.mform .pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; cursor: pointer; }
+.mform .pick svg { opacity: .55; flex: none; }
+.mform .pick.empty { color: var(--gray9); box-shadow: 0 0 0 1px var(--amber), inset 0 0 0 1px transparent; }
 .dbox.wide .dsub { white-space: normal; }
 .ptools { display: flex; gap: 14px; }
 .lnk { font-size: 12px; color: var(--blue); padding: 0; }

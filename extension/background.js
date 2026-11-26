@@ -71,6 +71,7 @@ const summary = (i) => {
     redmine: i.redmine
       ? { id: i.redmine.id || null, url: i.redmine.url || '', error: i.redmine.error || null, statusId: i.redmine.statusId || i.redmine.lastStatusId || null, statusName: i.redmine.statusName || i.redmine.remoteStatus || '', accepted: !!(i.redmine.acceptedStatusId && i.redmine.acceptedStatusId === (i.redmine.statusId || i.redmine.lastStatusId)) }
       : null,
+    redmineFields: i.redmineFields || null, // e.g. Pmo module — the editor reuses the last one
     resolution: r, // the developer's full result — the toolbar turns it into a retest checklist
     createdAt: i.createdAt || '',
     updatedAt: i.updatedAt || i.createdAt || '',
@@ -177,6 +178,60 @@ function rmDescription(issue) {
 }
 const rmSubject = (issue) => String(issue.title || K.titleFrom(issue.description, issue.element)).slice(0, 250);
 
+/**
+ * Extra Redmine custom fields of the issue's project (e.g. "Pmo module").
+ * link.extraFields = { [fieldId]: { name, mode: 'ask' | 'fixed' | 'off', value, values, multiple } }
+ *  - ask:   chosen per bug in the editor (issue.redmineFields[fieldId])
+ *  - fixed: the same value on every bug of this project
+ */
+function rmExtraFields(link, issue) {
+  const fields = [];
+  const missing = [];
+  for (const [id, f] of Object.entries(link.extraFields || {})) {
+    if (!f || f.mode === 'off' || (link.severityField && String(link.severityField.id) === String(id))) continue;
+    let v = f.mode === 'fixed' ? f.value : (issue.redmineFields || {})[id];
+    const empty = v == null || v === '' || (Array.isArray(v) && !v.length);
+    if (empty) {
+      if (f.mode === 'ask') missing.push(f.name);
+      continue;
+    }
+    if (f.multiple && !Array.isArray(v)) v = [v];
+    fields.push({ id: Number(id), value: v });
+  }
+  return { fields, missing };
+}
+
+/** After a "cannot be blank" refusal: switch those fields to "ask per bug" for the project. Returns the names it now asks for. */
+async function rmRequireFields(issue, link, names) {
+  const cfg = await rmConfig();
+  let setup = null;
+  try {
+    setup = await RM.projectSetup(cfg, link.projectId);
+  } catch {
+    /* fall back to fields already known */
+  }
+  const extra = { ...(link.extraFields || {}) };
+  const known = [];
+  for (const name of names) {
+    const lc = name.toLowerCase();
+    let id = Object.keys(extra).find((k) => String(extra[k].name || '').toLowerCase() === lc);
+    const f = setup && setup.fields.find((x) => x.name.toLowerCase() === lc);
+    if (!id && f) id = String(f.id);
+    if (!id) continue;
+    extra[id] = { ...(extra[id] || {}), name: (f && f.name) || extra[id].name || name, mode: extra[id] && extra[id].mode === 'fixed' && extra[id].value ? 'fixed' : 'ask', values: (f && f.values) || extra[id].values || [], multiple: !!((f && f.multiple) || (extra[id] && extra[id].multiple)) };
+    known.push(extra[id].name);
+  }
+  if (known.length) {
+    const ps = await K.db.getProjects();
+    const p = ps.find((x) => x.id === K.db.projectOf(issue));
+    if (p && p.redmine) {
+      p.redmine = { ...p.redmine, extraFields: extra };
+      await K.db.saveProjects(ps);
+    }
+  }
+  return known;
+}
+
 /** Create the Redmine issue (with screenshots) or update its subject/description. Mutates issue.redmine. */
 async function rmPush(issue) {
   const cfg = await rmConfig();
@@ -184,11 +239,15 @@ async function rmPush(issue) {
   if (!cfg || !link) return { skipped: true };
   const subject = rmSubject(issue);
   const description = rmDescription(issue);
+  const { fields: extra, missing } = rmExtraFields(link, issue);
   if (issue.redmine && issue.redmine.id) {
-    await RM.updateIssue(cfg, issue.redmine.id, { subject, description, notes: 'Description updated from KHDA Visual QA.' });
+    const upd = { subject, description, notes: 'Description updated from KHDA Visual QA.' };
+    if (extra.length) upd.custom_fields = extra;
+    await RM.updateIssue(cfg, issue.redmine.id, upd);
     issue.redmine = { ...issue.redmine, syncedAt: K.isoLocal(), error: null };
     return { updated: issue.redmine.id };
   }
+  if (missing.length) throw new Error(`Choose ${missing.map((n) => `“${n}”`).join(' and ')} for this bug — open it, pick a value and save.`);
   const uploads = [];
   if (cfg.attach !== false) {
     for (const [kind, max, type, suffix] of [
@@ -208,9 +267,26 @@ async function rmPush(issue) {
   if (pr) payload.priority_id = pr;
   // Project-specific: severity custom field (e.g. "Severity" = Major) and default assignee.
   const sevVal = link.severityField && link.severityMap && link.severityMap[issue.severity || 'medium'];
-  if (link.severityField && link.severityField.id && sevVal) payload.custom_fields = [{ id: link.severityField.id, value: sevVal }];
+  const cf = [];
+  if (link.severityField && link.severityField.id && sevVal) cf.push({ id: link.severityField.id, value: sevVal });
+  cf.push(...extra.filter((f) => !cf.some((x) => x.id === f.id)));
+  if (cf.length) payload.custom_fields = cf;
   if (link.assigneeId) payload.assigned_to_id = link.assigneeId;
-  const created = await RM.createIssue(cfg, payload);
+  let created;
+  try {
+    created = await RM.createIssue(cfg, payload);
+  } catch (e) {
+    // "Pmo module cannot be blank": a required field we don't send yet. Detect it, ask for it on every
+    // bug of this project from now on, and tell the tester exactly what to do.
+    const names = RM.blankFieldNames(e.message);
+    if (!names.length) throw e;
+    const known = await rmRequireFields(issue, link, names);
+    throw new Error(
+      known.length
+        ? `Redmine needs ${known.map((n) => `“${n}”`).join(' and ')} for this project. Open the bug, choose it and save again.`
+        : `Redmine needs ${names.map((n) => `“${n}”`).join(' and ')}, which isn't set up here yet — open Settings → Redmine and set it for this project.`
+    );
+  }
   const st = created.status || {};
   issue.redmine = { id: created.id, url: RM.issueUrl(cfg, created.id), statusId: st.id || null, statusName: st.name || '', lastStatusId: st.id || null, syncedAt: K.isoLocal(), error: null };
   return { created: created.id };
@@ -491,7 +567,17 @@ const handlers = {
 
   async saveIssue({ issue, raw, images }) {
     const settings = await K.db.getSettings();
-    if (!issue.projectId) issue.projectId = await K.db.getActiveProjectId();
+    if (!issue.projectId) {
+      // A bug belongs to the project of the site it was reported on, whatever project is active.
+      let origin = '';
+      try {
+        origin = new URL((issue.page && issue.page.url) || '').origin;
+      } catch {
+        /* no page URL */
+      }
+      const bySite = origin && (await K.db.getProjects()).find((p) => p.origin && p.origin === origin);
+      issue.projectId = bySite ? bySite.id : await K.db.getActiveProjectId();
+    }
     if (!issue.id) {
       const project = (await K.db.getProjects()).find((p) => p.id === issue.projectId);
       issue.id = await K.db.nextId(settings, project);
@@ -607,7 +693,8 @@ const handlers = {
       .map((i) => {
         const bucket = K.normStatus(i.status);
         const sid = rmTargetStatus(cfg, bucket);
-        return { id: i.id, title: i.title || K.titleFrom(i.description, i.element), status: bucket, severity: i.severity || 'medium', target: sid ? rmStatusName(cfg, sid) : null };
+        const needs = link ? rmExtraFields(link, i).missing : [];
+        return { id: i.id, title: i.title || K.titleFrom(i.description, i.element), status: bucket, severity: i.severity || 'medium', target: sid ? rmStatusName(cfg, sid) : null, needs };
       });
     const sev = link && link.severityField && link.severityField.id;
     return {

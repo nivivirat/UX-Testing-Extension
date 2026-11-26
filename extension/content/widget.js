@@ -930,6 +930,7 @@
       const flagged = [...(el ? I.flags : new Map()).entries()].map(([prop, cur]) => ({ property: prop, current: K.displayValue(cur) }));
       const issue = {
         id: null,
+        projectId: targetProject().id, // the project of THIS site, so the bug reaches the right Redmine
         title: '',
         severity: 'medium',
         status: 'open',
@@ -1042,6 +1043,7 @@
             <div class="fld"><span>Severity</span><div class="seg sev" id="eSev"></div></div>
             <div class="fld"><span>Fix scope</span><div class="seg" id="eScope"></div></div>
             <label class="fld"><span>Figma link <em>Optional</em></span><input class="inp" id="eFigma" placeholder="https://www.figma.com/design/…" autocomplete="off"><div id="eFigmaSt"></div></label>
+            <div id="eRm"></div>
             <div id="eErr"></div>
           </section>
         </div>
@@ -1064,10 +1066,91 @@
     renderSeverity();
     renderScope();
     renderFigma();
+    renderRedmineFields();
     redrawCanvas();
     const d = $('eDesc');
     d.focus({ preventScroll: true });
     d.setSelectionRange(d.value.indexOf('→ ') >= 0 ? d.value.indexOf('→ ') + 2 : d.value.length, d.value.indexOf('→ ') >= 0 ? d.value.indexOf('→ ') + 2 : d.value.length);
+  }
+
+  // ---------- where the bug goes + project-specific Redmine fields (e.g. "Pmo module") ----------
+  /** The project of the site being tested (by its Site address), else the active project. */
+  function targetProject() {
+    return (
+      state.projects.find((p) => p.origin && p.origin === location.origin) ||
+      state.projects.find((p) => p.id === state.activeProject) ||
+      state.projects[0] || { id: state.activeProject, name: 'Issues' }
+    );
+  }
+  const issueProject = (i) => state.projects.find((p) => p.id === (i.projectId || state.activeProject)) || targetProject();
+  /** Redmine link of the issue's project, only when Redmine is set up. */
+  function issueLink(i) {
+    const p = issueProject(i);
+    return state.redmine && state.redmine.configured && p.redmine && p.redmine.projectId ? p.redmine : null;
+  }
+  function askFields(i) {
+    const link = issueLink(i);
+    return link ? Object.entries(link.extraFields || {}).filter(([, f]) => f && f.mode === 'ask') : [];
+  }
+  /** Last value used for a field on this project's bugs — saves picking the same module again and again. */
+  function lastFieldValue(i, id) {
+    const pid = issueProject(i).id;
+    const prev = (state.allIssues || []).find((x) => x.projectId === pid && x.id !== i.id && x.redmineFields && x.redmineFields[id]);
+    return prev ? prev.redmineFields[id] : '';
+  }
+  function renderRedmineFields() {
+    const box = $('eRm');
+    if (!box || !E) return;
+    const i = E.issue;
+    const p = issueProject(i);
+    const link = issueLink(i);
+    i.redmineFields = { ...(i.redmineFields || {}) };
+    const ask = askFields(i);
+    for (const [id] of ask) if (!i.redmineFields[id] && E.isNew) i.redmineFields[id] = lastFieldValue(i, id);
+    const dest = link
+      ? `${esc(p.name)} <span class="muted">→ Redmine</span> ${esc(link.projectName || '#' + link.projectId)}${i.redmine && i.redmine.id ? ` <span class="muted">#${esc(i.redmine.id)}</span>` : ''}`
+      : `${esc(p.name)}${state.redmine && state.redmine.configured ? ' <span class="muted">· not linked to Redmine</span>' : ''}`;
+    box.innerHTML =
+      `<div class="fld"><span>Goes to</span><div class="dest">${dest}</div></div>` +
+      ask
+        .map(([id, f]) => {
+          const v = i.redmineFields[id];
+          const shown = Array.isArray(v) ? v.join(', ') : v;
+          return (f.values || []).length
+            ? `<div class="fld"><span>${esc(f.name)}</span><button type="button" class="inp pick${shown ? '' : ' empty'}" data-rmf="${esc(id)}" aria-haspopup="listbox">${esc(shown || 'Choose…')}${ICON.chev}</button></div>`
+            : `<label class="fld"><span>${esc(f.name)}</span><input class="inp" data-rmtext="${esc(id)}" value="${esc(shown || '')}" autocomplete="off"></label>`;
+        })
+        .join('');
+    for (const inp of box.querySelectorAll('[data-rmtext]'))
+      inp.oninput = () => {
+        i.redmineFields[inp.dataset.rmtext] = inp.value.trim();
+        E.dirty = true;
+      };
+  }
+  function pickRedmineField(btn) {
+    const id = btn.dataset.rmf;
+    const f = (askFields(E.issue).find(([k]) => k === id) || [])[1];
+    if (!f) return;
+    const cur = E.issue.redmineFields[id];
+    openMenu(
+      btn,
+      [{ heading: f.name }, ...f.values.map((v) => ({ value: v, label: v, checked: Array.isArray(cur) ? cur.includes(v) : cur === v }))],
+      (pick) => {
+        if (!pick || pick.heading) return;
+        E.issue.redmineFields[id] = f.multiple ? [pick.value] : pick.value;
+        E.dirty = true;
+        renderRedmineFields();
+      }
+    );
+  }
+  function missingRedmineFields() {
+    if (!E) return [];
+    return askFields(E.issue)
+      .filter(([id]) => {
+        const v = (E.issue.redmineFields || {})[id];
+        return v == null || v === '' || (Array.isArray(v) && !v.length);
+      })
+      .map(([, f]) => f.name);
   }
 
   /** Empty title = generated from the description; the generated text shows as the placeholder. */
@@ -1176,6 +1259,8 @@
       else if (a === 'undo') undo();
       return;
     }
+    const rmf = e.target.closest('[data-rmf]');
+    if (rmf) return pickRedmineField(rmf);
     const sev = e.target.closest('#eSev [data-v]');
     if (sev) {
       E.issue.severity = sev.dataset.v;
@@ -1222,6 +1307,17 @@
     if (!i.description) {
       $('eErr').innerHTML = '<div class="errs">Describe what\'s wrong.</div>';
       $('eDesc').focus();
+      return;
+    }
+    const need = missingRedmineFields();
+    if (need.length) {
+      $('eErr').innerHTML = `<div class="errs">Choose ${esc(need.join(' and '))} — Redmine needs it for this project.</div>`;
+      const pick = $('eRm').querySelector('.pick.empty, [data-rmtext]');
+      if (pick) {
+        pick.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        if (pick.dataset.rmf) setTimeout(() => pickRedmineField(pick), 250);
+        else pick.focus();
+      }
       return;
     }
     $('eErr').innerHTML = '';
@@ -1582,11 +1678,13 @@
         ? `${esc(L.name)}${L.tracker ? ` · ${esc(L.tracker)}` : ''}${L.assignee ? ` · assigned to ${esc(L.assignee)}` : ' · <b>no assignee</b>'}${L.severityField ? ` · ${esc(L.severityField)} set` : ''}`
         : '';
       const row = (x) => `<label class="pushrow">
-          <input type="checkbox" data-pid="${esc(x.id)}" ${active(x) ? 'checked' : ''}>
+          <input type="checkbox" data-pid="${esc(x.id)}" ${active(x) && !(x.needs && x.needs.length) ? 'checked' : ''}>
           <span class="pt" title="${esc(x.title)}">${esc(x.title)}</span>
           <span class="st st-${esc(x.status)}">${esc(K.STATUS_LABEL[x.status])}</span>
           <span class="parrow">→</span>
-          <span class="pto${x.target ? '' : ' warn'}">${esc(x.target || 'no status set')}</span>
+          ${x.needs && x.needs.length
+            ? `<span class="pto warn" title="Open the bug and choose it first">needs ${esc(x.needs.join(', '))}</span>`
+            : `<span class="pto${x.target ? '' : ' warn'}">${esc(x.target || 'no status set')}</span>`}
         </label>`;
       const others = plan.items.filter((x) => !active(x)).length;
       d.innerHTML = `

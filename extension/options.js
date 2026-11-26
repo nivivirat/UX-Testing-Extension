@@ -397,7 +397,8 @@
         sub.innerHTML = `
           <div class="row map sub"><div><b>Assign new issues to</b><p class="muted">${M.length ? 'Optional — leave on Nobody to let the team triage.' : 'Members are not visible to your account.'}</p></div><div class="vhost" data-h="assign"></div></div>
           <div class="row map sub"><div><b>Severity field</b><p class="muted">${F.length ? 'Redmine custom field that holds the severity.' : 'No custom fields found on the issues of this project.'}</p></div><div class="vhost" data-h="sevf"></div></div>
-          <div class="sevrows"></div>`;
+          <div class="sevrows"></div>
+          <div class="xrows"></div>`;
         sub.hidden = false;
         if (M.length)
           vselect(sub.querySelector('[data-h="assign"]'), {
@@ -426,9 +427,53 @@
               const f = F.find((x) => x.id === v);
               await save(f ? { severityField: { id: f.id, name: f.name }, severityMap: setup.severityDefaults[f.id], severityFieldChosen: true } : { severityField: null, severityMap: null, severityFieldChosen: true });
               drawSev();
+              drawExtra();
             },
           });
         drawSev();
+
+        // Other custom fields (e.g. "Pmo module"): ask for each bug, use one value for all, or don't send.
+        // First time: fields filled on almost every existing bug are most likely required → "Ask for each bug".
+        const drawExtra = async () => {
+          const rows = sub.querySelector('.xrows');
+          const sevId = link.severityField && link.severityField.id;
+          const X = setup.fields.filter((f) => f.id !== sevId);
+          if (!X.length) return (rows.innerHTML = '');
+          const extra = { ...(link.extraFields || {}) };
+          let changed = !link.extraFields;
+          for (const f of X) {
+            const cur = extra[f.id];
+            if (!cur) {
+              extra[f.id] = { name: f.name, mode: f.usedOn >= 0.9 ? 'ask' : 'off', value: '', values: f.values, multiple: f.multiple };
+              changed = true;
+            } else if (JSON.stringify(cur.values || []) !== JSON.stringify(f.values) || cur.name !== f.name) {
+              extra[f.id] = { ...cur, name: f.name, values: f.values, multiple: f.multiple };
+              changed = true;
+            }
+          }
+          if (changed) await save({ extraFields: extra });
+          rows.innerHTML =
+            `<div class="row map sub"><div><b>Other Redmine fields</b><p class="muted">Required fields (like a module) must be filled, or Redmine refuses the bug.</p></div><div></div></div>` +
+            X.map(
+              (f) => `<div class="row map sub sev"><div><b>${esc(f.name)}</b><p class="muted">${f.usedOn ? `Filled on ${Math.round(f.usedOn * 100)}% of recent bugs` : 'Not used on recent bugs'}${f.values.length ? ' · ' + esc(f.values.slice(0, 3).join(', ')) + (f.values.length > 3 ? '…' : '') : ''}</p></div><div class="vhost" data-x="${f.id}"></div></div>`
+            ).join('');
+          for (const f of X)
+            vselect(rows.querySelector(`[data-x="${f.id}"]`), {
+              options: [
+                { value: 'ask', label: 'Ask for each bug', sub: 'chosen in the issue editor' },
+                { value: 'off', label: "Don't send" },
+                ...f.values.map((v) => ({ value: 'v:' + v, label: v, sub: 'same for every bug' })),
+              ],
+              value: extra[f.id].mode === 'fixed' ? 'v:' + extra[f.id].value : extra[f.id].mode,
+              search: f.values.length > 7,
+              onChange: async (v) => {
+                const cur = { ...(link.extraFields || {}) };
+                cur[f.id] = { ...cur[f.id], ...(String(v).startsWith('v:') ? { mode: 'fixed', value: String(v).slice(2) } : { mode: v, value: '' }) };
+                await save({ extraFields: cur });
+              },
+            });
+        };
+        await drawExtra();
       };
       vselect(box.querySelector('.vh1'), {
         options: [{ value: '', label: 'Not linked' }, ...(c.projects || []).map((rp) => ({ value: rp.id, label: rp.name, sub: rp.identifier }))],

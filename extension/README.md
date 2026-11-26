@@ -75,6 +75,13 @@ Statuses: **Open** → (developer) **Fixed / Partly fixed / Couldn't fix** → (
 project, tracker, optional assignee and the **Severity** custom field (detected from existing bugs).
 Status and priority mappings are pre-filled by name and can be changed.
 
+- **Each bug goes to its own project's Redmine.** A new bug belongs to the project whose **Site**
+  matches the page it was reported on (else the active project). The editor shows *Goes to:
+  Project → Redmine project* before you save.
+- **Required Redmine fields** (e.g. *Pmo module*): Settings → Redmine lists the project's other
+  fields. *Ask for each bug* adds a picker to the editor (it remembers the last value); or pick one
+  value for every bug, or *Don't send*. If Redmine refuses a bug because a field "cannot be blank",
+  the field is detected automatically and asked for from then on.
 - **Saving an issue** creates the Redmine issue with the description, page, technical details and
   both screenshots (and updates the description when you edit it later).
 - **Redmine is the source of truth for status.** Issues in Redmine show Redmine's own status

@@ -98,18 +98,30 @@
   R.projectSetup = async (cfg, projectId) => {
     const trackers = await R.projectTrackers(cfg, projectId);
     const fields = new Map();
+    let sampled = 0;
     try {
       const d = await R.call(cfg, 'GET', '/issues.json', { query: { project_id: projectId, status_id: '*', limit: 100, sort: 'id:desc' } });
-      for (const i of (d && d.issues) || [])
+      for (const i of (d && d.issues) || []) {
+        sampled++;
         for (const c of i.custom_fields || []) {
-          if (!fields.has(c.id)) fields.set(c.id, { id: c.id, name: c.name, counts: new Map() });
-          if (c.value != null && c.value !== '' && !Array.isArray(c.value)) {
-            const f = fields.get(c.id);
-            f.counts.set(String(c.value), (f.counts.get(String(c.value)) || 0) + 1);
-          }
+          if (!fields.has(c.id)) fields.set(c.id, { id: c.id, name: c.name, counts: new Map(), filled: 0, multiple: false });
+          const f = fields.get(c.id);
+          const vals = Array.isArray(c.value) ? c.value : c.value == null || c.value === '' ? [] : [c.value];
+          if (Array.isArray(c.value) || c.multiple) f.multiple = true;
+          if (vals.length) f.filled++;
+          for (const v of vals) f.counts.set(String(v), (f.counts.get(String(v)) || 0) + 1);
         }
+      }
     } catch {
       /* no issues readable yet — fields can't be detected */
+    }
+    // Fields enabled on the project but not used on recent issues yet (names only; values unknown to non-admins).
+    try {
+      const d = await R.call(cfg, 'GET', `/projects/${encodeURIComponent(projectId)}.json`, { query: { include: 'issue_custom_fields' } });
+      for (const c of (d && d.project && d.project.issue_custom_fields) || [])
+        if (!fields.has(c.id)) fields.set(c.id, { id: c.id, name: c.name, counts: new Map(), filled: 0, multiple: false });
+    } catch {
+      /* older Redmine — the issue sample above is enough */
     }
     const members = [];
     try {
@@ -124,7 +136,14 @@
     }
     return {
       trackers,
-      fields: [...fields.values()].map((f) => ({ id: f.id, name: f.name, values: [...f.counts.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v) })),
+      // usedOn = share of recent issues that have a value: ~1 means Redmine most likely requires it.
+      fields: [...fields.values()].map((f) => ({
+        id: f.id,
+        name: f.name,
+        multiple: f.multiple,
+        usedOn: sampled ? f.filled / sampled : 0,
+        values: [...f.counts.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v),
+      })),
       members: members.sort((a, b) => a.name.localeCompare(b.name)),
     };
   };
@@ -145,6 +164,9 @@
       low: pick(/minor/i, /^low$/i, /low/i, /trivial/i),
     };
   };
+
+  /** Field names from a Redmine "X cannot be blank" refusal, e.g. ["Pmo module"]. */
+  R.blankFieldNames = (message) => [...String(message || '').matchAll(/(?:^|[:;]\s*)([^:;]+?) cannot be blank/gi)].map((m) => m[1].trim());
 
   R.upload = async (cfg, blob, filename) => {
     const d = await R.call(cfg, 'POST', '/uploads.json', { blob, query: { filename } });
